@@ -5,6 +5,9 @@ such as [`ngx_http_upstream_conf`](http://nginx.org/en/docs/http/ngx_http_upstre
 
 This module also supports stream upstreams manipulation.
 
+# Build status
+[![Build Status](https://travis-ci.org/ZigzagAK/ngx_dynamic_upstream.svg)](https://travis-ci.org/ZigzagAK/ngx_dynamic_upstream)
+
 # Requirements
 
 `ngx_dynamic_upstream` requires the `zone` directive in the `upstream` context.
