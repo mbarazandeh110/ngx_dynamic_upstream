@@ -246,9 +246,9 @@ ngx_dynamic_upstream_op_impl(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
     }
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM) {
-        lock_peers(primary->stream);
+        ngx_http_upstream_rr_peers_wlock(primary->stream);
     } else {
-        lock_peers(primary->http);
+        ngx_http_upstream_rr_peers_wlock(primary->http);
     }
 
     switch (op->op) {
@@ -271,9 +271,9 @@ ngx_dynamic_upstream_op_impl(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
     }
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM) {
-        unlock_peers(primary->stream);
+        ngx_http_upstream_rr_peers_unlock(primary->stream);
     } else {
-        unlock_peers(primary->http);
+        ngx_http_upstream_rr_peers_unlock(primary->http);
     }
 
     if (shpool) {

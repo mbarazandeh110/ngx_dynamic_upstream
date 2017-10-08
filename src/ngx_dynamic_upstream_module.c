@@ -128,7 +128,7 @@ ngx_dynamic_upstream_create_response_buf(ngx_http_upstream_rr_peers_t *peers, ng
 
     primary = peers;
 
-    lock_peers(primary);
+    ngx_http_upstream_rr_peers_rlock(primary);
 
     backup = primary->next;
 
@@ -138,7 +138,7 @@ ngx_dynamic_upstream_create_response_buf(ngx_http_upstream_rr_peers_t *peers, ng
         for (peer = peers->peer; peer; peer = peer->next) {
 
             if (peer->name.len > 511) {
-                unlock_peers(primary);
+                ngx_http_upstream_rr_peers_unlock(primary);
                 return NGX_ERROR;
             }
 
@@ -159,7 +159,7 @@ ngx_dynamic_upstream_create_response_buf(ngx_http_upstream_rr_peers_t *peers, ng
         }
     }
 
-    unlock_peers(primary);
+    ngx_http_upstream_rr_peers_unlock(primary);
 
     return NGX_OK;
 }
@@ -174,7 +174,7 @@ ngx_dynamic_upstream_stream_create_response_buf(ngx_stream_upstream_rr_peers_t *
 
     primary = peers;
 
-    lock_peers(primary);
+    ngx_http_upstream_rr_peers_rlock(primary);
 
     backup = primary->next;
 
@@ -184,7 +184,7 @@ ngx_dynamic_upstream_stream_create_response_buf(ngx_stream_upstream_rr_peers_t *
         for (peer = peers->peer; peer; peer = peer->next) {
 
             if (peer->name.len > 511) {
-                unlock_peers(primary);
+                ngx_http_upstream_rr_peers_unlock(primary);
                 return NGX_ERROR;
             }
 
@@ -205,7 +205,7 @@ ngx_dynamic_upstream_stream_create_response_buf(ngx_stream_upstream_rr_peers_t *
         }
     }
 
-    unlock_peers(primary);
+    ngx_http_upstream_rr_peers_unlock(primary);
 
     return NGX_OK;
 }
