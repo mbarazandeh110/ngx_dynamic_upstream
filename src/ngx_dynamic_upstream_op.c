@@ -763,7 +763,7 @@ ngx_dynamic_upstream_http_op_update_param(ngx_log_t *log,
     if (target == NULL) {
         op->status = NGX_HTTP_BAD_REQUEST;
         ngx_log_error(NGX_LOG_ERR, log, 0,
-                      "server %V is not found. %s:%d",
+                      "peer %V is not found. %s:%d",
                       &op->server,
                       __FUNCTION__,
                       __LINE__);
@@ -795,7 +795,7 @@ ngx_dynamic_upstream_http_op_update_param(ngx_log_t *log,
         target->checked = ngx_time();
         target->fails = 0;
         ngx_log_error(NGX_LOG_NOTICE, log, 0,
-                      "downed server %V", &op->server);
+                      "up peer %V", &op->server);
     }
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN) {
@@ -803,7 +803,7 @@ ngx_dynamic_upstream_http_op_update_param(ngx_log_t *log,
         target->checked = ngx_time();
         target->fails = target->max_fails;
         ngx_log_error(NGX_LOG_NOTICE, log, 0,
-                      "upped server %V", &op->server);
+                      "down peer %V", &op->server);
     }
 
     return NGX_OK;
@@ -832,7 +832,7 @@ ngx_dynamic_upstream_stream_op_update_param(ngx_log_t *log,
     if (target == NULL) {
         op->status = NGX_HTTP_BAD_REQUEST;
         ngx_log_error(NGX_LOG_ERR, log, 0,
-                      "server %V is not found. %s:%d",
+                      "peer %V is not found. %s:%d",
                       &op->server,
                       __FUNCTION__,
                       __LINE__);
@@ -864,7 +864,7 @@ ngx_dynamic_upstream_stream_op_update_param(ngx_log_t *log,
         target->checked = ngx_time();
         target->fails = 0;
         ngx_log_error(NGX_LOG_NOTICE, log, 0,
-                      "downed server %V", &op->server);
+                      "up peer %V", &op->server);
     }
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN) {
@@ -872,7 +872,7 @@ ngx_dynamic_upstream_stream_op_update_param(ngx_log_t *log,
         target->checked = ngx_time();
         target->fails = target->max_fails;
         ngx_log_error(NGX_LOG_NOTICE, log, 0,
-                      "upped server %V", &op->server);
+                      "down peer %V", &op->server);
     }
 
     return NGX_OK;
