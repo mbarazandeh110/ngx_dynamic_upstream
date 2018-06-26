@@ -1,9 +1,9 @@
-ngx_addon_name=ngx_dynamic_upstream_module
+ngx_addon_name="ngx_http_dynamic_upstream_module"
 
-DYNAMIC_UPSTREAM_SRCS="                                          \
-                $ngx_addon_dir/src/ngx_dynamic_upstream_module.c \
-                $ngx_addon_dir/src/ngx_dynamic_upstream_op.c     \
-                $ngx_addon_dir/src/ngx_inet_slab.c               \
+DYNAMIC_UPSTREAM_SRCS="                                                 \
+                $ngx_addon_dir/src/ngx_http_dynamic_upstream_module.c   \
+                $ngx_addon_dir/src/ngx_dynamic_upstream_op.c            \
+                $ngx_addon_dir/src/ngx_inet_slab.c                      \
                "
 
 DYNAMIC_UPSTREAM_DEPS="                                          \

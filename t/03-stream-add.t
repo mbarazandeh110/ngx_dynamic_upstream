@@ -50,10 +50,10 @@ server 127.0.0.1:6004;
 --- request
     GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6004&add=&weight=10&stream=
 --- response_body
-server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10;
-server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10;
-server 127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10;
-server 127.0.0.1:6004 weight=10 max_fails=1 fail_timeout=10;
+server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6004 weight=10 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 
 
 === TEST 3: add duplicated server

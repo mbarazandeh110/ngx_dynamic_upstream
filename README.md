@@ -43,13 +43,13 @@ http {
         listen 6000;
 
         location /dynamic {
-		        allow 127.0.0.1;
+            allow 127.0.0.1;
             deny all;
             dynamic_upstream;
         }
 
         location / {
-	          proxy_pass http://backends;
+            proxy_pass http://backends;
         }
     }
 }
@@ -87,19 +87,19 @@ $
 
 ```bash
 $ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends&verbose="
-server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10;
-server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10;
-server 127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10;
+server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 $
 ```
 
 ## update_parameters
 
 ```bash
-$ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&weight=10&max_fails=5&fail_timeout=5"
-server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10;
-server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10;
-server 127.0.0.1:6003 weight=10 max_fails=5 fail_timeout=5;
+$ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&weight=10&max_fails=5&fail_timeout=5&max_conns=10"
+server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6003 weight=10 max_fails=5 fail_timeout=5 max_conns=10 conns=0;
 $
 ```
 
@@ -113,9 +113,9 @@ The supported parameters are below.
 
 ```bash
 $ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&down="
-server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10;
-server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10;
-server 127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10 down;
+server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0 down;
 $
 ```
 
@@ -123,9 +123,9 @@ $
 
 ```bash
 $ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&up="
-server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10;
-server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10;
-server 127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10;
+server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 $
 ```
 
