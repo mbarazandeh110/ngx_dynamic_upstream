@@ -24,9 +24,9 @@ __DATA__
 --- request
     GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&weight=10&max_fails=5&fail_timeout=5
 --- response_body
-server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6003 weight=10 max_fails=5 fail_timeout=5 max_conns=0 conns=0;
+server 127.0.0.1:6001 addr=127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6002 addr=127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6003 addr=127.0.0.1:6003 weight=10 max_fails=5 fail_timeout=5 max_conns=0 conns=0;
 
 
 === TEST 2: update weight parameter
@@ -44,9 +44,9 @@ server 127.0.0.1:6003 weight=10 max_fails=5 fail_timeout=5 max_conns=0 conns=0;
 --- request
     GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&weight=10
 --- response_body
-server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6003 weight=10 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6001 addr=127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6002 addr=127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6003 addr=127.0.0.1:6003 weight=10 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 
 
 === TEST 3: update max_fails parameter
@@ -64,9 +64,9 @@ server 127.0.0.1:6003 weight=10 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 --- request
     GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&max_fails=5
 --- response_body
-server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6003 weight=1 max_fails=5 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6001 addr=127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6002 addr=127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6003 addr=127.0.0.1:6003 weight=1 max_fails=5 fail_timeout=10 max_conns=0 conns=0;
 
 
 === TEST 4: update fail_timeout parameter
@@ -84,9 +84,9 @@ server 127.0.0.1:6003 weight=1 max_fails=5 fail_timeout=10 max_conns=0 conns=0;
 --- request
     GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&fail_timeout=5
 --- response_body
-server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=5 max_conns=0 conns=0;
+server 127.0.0.1:6001 addr=127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6002 addr=127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6003 addr=127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=5 max_conns=0 conns=0;
 
 
 === TEST 5: fail to update weight parameter
@@ -157,6 +157,6 @@ server 127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=5 max_conns=0 conns=0;
 --- request
     GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&max_conns=5
 --- response_body
-server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10 max_conns=5 conns=0;
+server 127.0.0.1:6001 addr=127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6002 addr=127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6003 addr=127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10 max_conns=5 conns=0;

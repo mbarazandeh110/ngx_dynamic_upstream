@@ -25,12 +25,12 @@ __DATA__
         dynamic_upstream;
     }
 --- request
-    GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6004&add=&stream=
+    GET /dynamic?upstream=zone_for_backends&server=localhost:6004&add=&stream=
 --- response_body
-server 127.0.0.1:6001;
-server 127.0.0.1:6002;
-server 127.0.0.1:6003;
-server 127.0.0.1:6004;
+server 127.0.0.1:6001 addr=127.0.0.1:6001;
+server 127.0.0.1:6002 addr=127.0.0.1:6002;
+server 127.0.0.1:6003 addr=127.0.0.1:6003;
+server localhost:6004 addr=127.0.0.1:6004;
 
 
 === TEST 2: add and update parameters
@@ -50,10 +50,10 @@ server 127.0.0.1:6004;
 --- request
     GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6004&add=&weight=10&stream=
 --- response_body
-server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6004 weight=10 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6001 addr=127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6002 addr=127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6003 addr=127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server 127.0.0.1:6004 addr=127.0.0.1:6004 weight=10 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 
 
 === TEST 3: add duplicated server
@@ -112,7 +112,7 @@ server 127.0.0.1:6004 weight=10 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 --- request
     GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6004&add=&backup=&stream=
 --- response_body
-server 127.0.0.1:6001;
-server 127.0.0.1:6002;
-server 127.0.0.1:6003;
-server 127.0.0.1:6004 backup;
+server 127.0.0.1:6001 addr=127.0.0.1:6001;
+server 127.0.0.1:6002 addr=127.0.0.1:6002;
+server 127.0.0.1:6003 addr=127.0.0.1:6003;
+server 127.0.0.1:6004 addr=127.0.0.1:6004 backup;

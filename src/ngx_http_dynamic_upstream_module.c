@@ -157,12 +157,12 @@ ngx_http_dynamic_upstream_response(ngx_http_upstream_rr_peers_t *peers,
 
             if (verbose) {
                 b->last = ngx_snprintf(b->last, last - b->last,
-                    "server %V weight=%d max_fails=%d fail_timeout=%d"
+                    "server %V addr=%V weight=%d max_fails=%d fail_timeout=%d"
 #if defined(nginx_version) && (nginx_version >= 1011005)
                     " max_conns=%d"
 #endif
                     " conns=%d",
-                    &peer->name, peer->weight, peer->max_fails,
+                    &peer->server, &peer->name, peer->weight, peer->max_fails,
                     peer->fail_timeout,
 #if defined(nginx_version) && (nginx_version >= 1011005)
                     peer->max_conns,
@@ -171,7 +171,8 @@ ngx_http_dynamic_upstream_response(ngx_http_upstream_rr_peers_t *peers,
 
             } else {
                 b->last = ngx_snprintf(b->last, last - b->last,
-                                       "server %V", &peer->name);
+                                       "server %V addr=%V", &peer->server,
+                                       &peer->name);
             }
 
             b->last = peer->down
@@ -210,12 +211,12 @@ ngx_stream_dynamic_upstream_response(ngx_stream_upstream_rr_peers_t *peers,
 
             if (verbose) {
                 b->last = ngx_snprintf(b->last, last - b->last,
-                    "server %V weight=%d max_fails=%d fail_timeout=%d"
+                    "server %V addr=%V weight=%d max_fails=%d fail_timeout=%d"
 #if defined(nginx_version) && (nginx_version >= 1011005)
                     " max_conns=%d"
 #endif
                     " conns=%d",
-                    &peer->name, peer->weight, peer->max_fails,
+                    &peer->server, &peer->name, peer->weight, peer->max_fails,
                     peer->fail_timeout,
 #if defined(nginx_version) && (nginx_version >= 1011005)
                     peer->max_conns,
@@ -223,7 +224,8 @@ ngx_stream_dynamic_upstream_response(ngx_stream_upstream_rr_peers_t *peers,
                     peer->conns);
             } else {
                 b->last = ngx_snprintf(b->last, last - b->last,
-                                       "server %V", &peer->name);
+                                       "server %V addr=%V", &peer->server,
+                                       &peer->name);
             }
 
             b->last = peer->down

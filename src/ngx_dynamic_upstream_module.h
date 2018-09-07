@@ -25,6 +25,9 @@
 #define NGX_DYNAMIC_UPSTEAM_OP_PARAM_MAX_CONNS    32
 #endif
 
+#define NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE      64
+#define NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6         128
+
 #define NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM       256
 
 typedef struct ngx_dynamic_upstream_op_t {
