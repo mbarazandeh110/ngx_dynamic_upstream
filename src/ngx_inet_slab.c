@@ -78,12 +78,12 @@ ngx_parse_unix_domain_url(ngx_slab_pool_t *pool, ngx_url_t *u)
     saun->sun_family = AF_UNIX;
     (void) ngx_cpystrn((u_char *) saun->sun_path, path, len);
 
-    u->addrs = ngx_slab_calloc_locked(pool, sizeof(ngx_addr_t));
+    u->addrs = ngx_slab_calloc(pool, sizeof(ngx_addr_t));
     if (u->addrs == NULL) {
         return NGX_ERROR;
     }
 
-    saun = ngx_slab_calloc_locked(pool, sizeof(struct sockaddr_un));
+    saun = ngx_slab_calloc(pool, sizeof(struct sockaddr_un));
     if (saun == NULL) {
         return NGX_ERROR;
     }
@@ -240,12 +240,12 @@ ngx_parse_inet_url(ngx_slab_pool_t *pool, ngx_url_t *u)
 
         u->naddrs = 1;
 
-        u->addrs = ngx_slab_calloc_locked(pool, sizeof(ngx_addr_t));
+        u->addrs = ngx_slab_calloc(pool, sizeof(ngx_addr_t));
         if (u->addrs == NULL) {
             return NGX_ERROR;
         }
 
-        sin = ngx_slab_calloc_locked(pool, sizeof(struct sockaddr_in));
+        sin = ngx_slab_calloc(pool, sizeof(struct sockaddr_in));
         if (sin == NULL) {
             return NGX_ERROR;
         }
@@ -259,7 +259,7 @@ ngx_parse_inet_url(ngx_slab_pool_t *pool, ngx_url_t *u)
         u->addrs[0].sockaddr = (struct sockaddr *) sin;
         u->addrs[0].socklen = sizeof(struct sockaddr_in);
 
-        p = ngx_slab_alloc_locked(pool, u->host.len + sizeof(":65535") - 1);
+        p = ngx_slab_alloc(pool, u->host.len + sizeof(":65535") - 1);
         if (p == NULL) {
             return NGX_ERROR;
         }
@@ -403,12 +403,12 @@ ngx_parse_inet6_url(ngx_slab_pool_t *pool, ngx_url_t *u)
     u->family = AF_INET6;
     u->naddrs = 1;
 
-    u->addrs = ngx_slab_calloc_locked(pool, sizeof(ngx_addr_t));
+    u->addrs = ngx_slab_calloc(pool, sizeof(ngx_addr_t));
     if (u->addrs == NULL) {
         return NGX_ERROR;
     }
 
-    sin6 = ngx_slab_calloc_locked(pool, sizeof(struct sockaddr_in6));
+    sin6 = ngx_slab_calloc(pool, sizeof(struct sockaddr_in6));
     if (sin6 == NULL) {
         return NGX_ERROR;
     }
@@ -421,7 +421,7 @@ ngx_parse_inet6_url(ngx_slab_pool_t *pool, ngx_url_t *u)
     u->addrs[0].sockaddr = (struct sockaddr *) sin6;
     u->addrs[0].socklen = sizeof(struct sockaddr_in6);
 
-    p = ngx_slab_alloc_locked(pool, u->host.len + sizeof(":65535") - 1);
+    p = ngx_slab_alloc(pool, u->host.len + sizeof(":65535") - 1);
     if (p == NULL) {
         return NGX_ERROR;
     }
@@ -457,7 +457,7 @@ ngx_inet_resolve_host_slab(ngx_slab_pool_t *pool, ngx_url_t *u)
 
     port = htons(u->port);
 
-    host = ngx_slab_alloc_locked(pool, u->host.len + 1);
+    host = ngx_slab_alloc(pool, u->host.len + 1);
     if (host == NULL) {
         return NGX_ERROR;
     }
@@ -473,11 +473,11 @@ ngx_inet_resolve_host_slab(ngx_slab_pool_t *pool, ngx_url_t *u)
 
     if (getaddrinfo((char *) host, NULL, &hints, &res) != 0) {
         u->err = "host not found";
-        ngx_slab_free_locked(pool, host);
+        ngx_slab_free(pool, host);
         return NGX_ERROR;
     }
 
-    ngx_slab_free_locked(pool, host);
+    ngx_slab_free(pool, host);
 
     for (i = 0, rp = res; rp != NULL; rp = rp->ai_next) {
 
@@ -501,7 +501,7 @@ ngx_inet_resolve_host_slab(ngx_slab_pool_t *pool, ngx_url_t *u)
 
     /* MP: ngx_shared_palloc() */
 
-    u->addrs = ngx_slab_calloc_locked(pool, i * sizeof(ngx_addr_t));
+    u->addrs = ngx_slab_calloc(pool, i * sizeof(ngx_addr_t));
     if (u->addrs == NULL) {
         goto failed;
     }
@@ -518,7 +518,7 @@ ngx_inet_resolve_host_slab(ngx_slab_pool_t *pool, ngx_url_t *u)
             continue;
         }
 
-        sin = ngx_slab_calloc_locked(pool, rp->ai_addrlen);
+        sin = ngx_slab_calloc(pool, rp->ai_addrlen);
         if (sin == NULL) {
             goto failed;
         }
@@ -532,7 +532,7 @@ ngx_inet_resolve_host_slab(ngx_slab_pool_t *pool, ngx_url_t *u)
 
         len = NGX_INET_ADDRSTRLEN + sizeof(":65535") - 1;
 
-        p = ngx_slab_alloc_locked(pool, len);
+        p = ngx_slab_alloc(pool, len);
         if (p == NULL) {
             goto failed;
         }
@@ -551,7 +551,7 @@ ngx_inet_resolve_host_slab(ngx_slab_pool_t *pool, ngx_url_t *u)
             continue;
         }
 
-        sin6 = ngx_slab_calloc_locked(pool, rp->ai_addrlen);
+        sin6 = ngx_slab_calloc(pool, rp->ai_addrlen);
         if (sin6 == NULL) {
             goto failed;
         }
@@ -565,7 +565,7 @@ ngx_inet_resolve_host_slab(ngx_slab_pool_t *pool, ngx_url_t *u)
 
         len = NGX_INET6_ADDRSTRLEN + sizeof("[]:65535") - 1;
 
-        p = ngx_slab_alloc_locked(pool, len);
+        p = ngx_slab_alloc(pool, len);
         if (p == NULL) {
             goto failed;
         }
@@ -608,7 +608,7 @@ ngx_inet_resolve_host_slab(ngx_slab_pool_t *pool, ngx_url_t *u)
     in_addr = ngx_inet_addr(u->host.data, u->host.len);
 
     if (in_addr == INADDR_NONE) {
-        host = ngx_slab_alloc_locked(pool, u->host.len + 1);
+        host = ngx_slab_alloc(pool, u->host.len + 1);
         if (host == NULL) {
             return NGX_ERROR;
         }
@@ -617,7 +617,7 @@ ngx_inet_resolve_host_slab(ngx_slab_pool_t *pool, ngx_url_t *u)
 
         h = gethostbyname((char *) host);
 
-        ngx_slab_free_locked(pool, host);
+        ngx_slab_free(pool, host);
 
         if (h == NULL || h->h_addr_list[0] == NULL) {
             u->err = "host not found";
@@ -628,7 +628,7 @@ ngx_inet_resolve_host_slab(ngx_slab_pool_t *pool, ngx_url_t *u)
 
         /* MP: ngx_shared_palloc() */
 
-        u->addrs = ngx_slab_calloc_locked(pool, i * sizeof(ngx_addr_t));
+        u->addrs = ngx_slab_calloc(pool, i * sizeof(ngx_addr_t));
         if (u->addrs == NULL) {
             return NGX_ERROR;
         }
@@ -637,7 +637,7 @@ ngx_inet_resolve_host_slab(ngx_slab_pool_t *pool, ngx_url_t *u)
 
         for (i = 0; i < u->naddrs; i++) {
 
-            sin = ngx_slab_calloc_locked(pool, sizeof(struct sockaddr_in));
+            sin = ngx_slab_calloc(pool, sizeof(struct sockaddr_in));
             if (sin == NULL) {
                 return NGX_ERROR;
             }
@@ -651,7 +651,7 @@ ngx_inet_resolve_host_slab(ngx_slab_pool_t *pool, ngx_url_t *u)
 
             len = NGX_INET_ADDRSTRLEN + sizeof(":65535") - 1;
 
-            p = ngx_slab_alloc_locked(pool, len);
+            p = ngx_slab_alloc(pool, len);
             if (p == NULL) {
                 return NGX_ERROR;
             }
@@ -667,12 +667,12 @@ ngx_inet_resolve_host_slab(ngx_slab_pool_t *pool, ngx_url_t *u)
 
         /* MP: ngx_shared_palloc() */
 
-        u->addrs = ngx_slab_calloc_locked(pool, sizeof(ngx_addr_t));
+        u->addrs = ngx_slab_calloc(pool, sizeof(ngx_addr_t));
         if (u->addrs == NULL) {
             return NGX_ERROR;
         }
 
-        sin = ngx_slab_calloc_locked(pool, sizeof(struct sockaddr_in));
+        sin = ngx_slab_calloc(pool, sizeof(struct sockaddr_in));
         if (sin == NULL) {
             return NGX_ERROR;
         }
@@ -686,7 +686,7 @@ ngx_inet_resolve_host_slab(ngx_slab_pool_t *pool, ngx_url_t *u)
         u->addrs[0].sockaddr = (struct sockaddr *) sin;
         u->addrs[0].socklen = sizeof(struct sockaddr_in);
 
-        p = ngx_slab_alloc_locked(pool, u->host.len + sizeof(":65535") - 1);
+        p = ngx_slab_alloc(pool, u->host.len + sizeof(":65535") - 1);
         if (p == NULL) {
             return NGX_ERROR;
         }

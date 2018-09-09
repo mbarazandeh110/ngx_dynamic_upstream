@@ -1,8 +1,8 @@
 ngx_addon_name="ngx_http_dynamic_upstream_module"
 
 DYNAMIC_UPSTREAM_SRCS="                                                 \
-                $ngx_addon_dir/src/ngx_http_dynamic_upstream_module.c   \
-                $ngx_addon_dir/src/ngx_dynamic_upstream_op.c            \
+                $ngx_addon_dir/src/ngx_http_dynamic_upstream_module.cpp \
+                $ngx_addon_dir/src/ngx_dynamic_upstream_op.cpp          \
                 $ngx_addon_dir/src/ngx_inet_slab.c                      \
                "
 
@@ -20,7 +20,7 @@ if test -n "$ngx_module_link"; then
     ngx_module_incs=
     ngx_module_deps="$DYNAMIC_UPSTREAM_DEPS"
     ngx_module_srcs="$DYNAMIC_UPSTREAM_SRCS"
-    ngx_module_libs=
+    ngx_module_libs=-lstdc++
    . auto/module
 else
     HTTP_MODULES="$HTTP_MODULES $ngx_addon_name"

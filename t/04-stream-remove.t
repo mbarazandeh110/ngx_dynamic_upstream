@@ -2,8 +2,6 @@ use lib 'lib';
 use Test::Nginx::Socket;
 use Test::Nginx::Socket::Lua::Stream;
 
-#repeat_each(2);
-
 plan tests => repeat_each() * 2 * blocks();
 
 run_tests();
@@ -25,7 +23,7 @@ __DATA__
         dynamic_upstream;
     }
 --- request
-    GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6001&remove=&stream=
+    GET /dynamic?upstream=backends&server=127.0.0.1:6001&remove=&stream=
 --- response_body
 server 127.0.0.1:6002 addr=127.0.0.1:6002;
 server 127.0.0.1:6003 addr=127.0.0.1:6003;
@@ -46,7 +44,7 @@ server 127.0.0.1:6003 addr=127.0.0.1:6003;
         dynamic_upstream;
     }
 --- request
-    GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&remove=&stream=
+    GET /dynamic?upstream=backends&server=127.0.0.1:6003&remove=&stream=
 --- response_body
 server 127.0.0.1:6001 addr=127.0.0.1:6001;
 server 127.0.0.1:6002 addr=127.0.0.1:6002;
@@ -67,7 +65,7 @@ server 127.0.0.1:6002 addr=127.0.0.1:6002;
         dynamic_upstream;
     }
 --- request
-    GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6002&remove=&stream=
+    GET /dynamic?upstream=backends&server=127.0.0.1:6002&remove=&stream=
 --- response_body
 server 127.0.0.1:6001 addr=127.0.0.1:6001;
 server 127.0.0.1:6003 addr=127.0.0.1:6003;
@@ -88,9 +86,10 @@ server 127.0.0.1:6003 addr=127.0.0.1:6003;
         dynamic_upstream;
     }
 --- request
-    GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6004&remove=&stream=
---- response_body_like: 400 Bad Request
---- error_code: 400
+    GET /dynamic?upstream=backends&server=127.0.0.1:6004&remove=&stream=
+--- response_body_like:
+--- error_code: 304
+
 
 === TEST 5: remove backup
 --- stream_config
@@ -107,7 +106,7 @@ server 127.0.0.1:6003 addr=127.0.0.1:6003;
         dynamic_upstream;
     }
 --- request
-    GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&remove=&stream=
+    GET /dynamic?upstream=backends&server=127.0.0.1:6003&remove=&stream=
 --- response_body
 server 127.0.0.1:6001 addr=127.0.0.1:6001;
 server 127.0.0.1:6002 addr=127.0.0.1:6002;

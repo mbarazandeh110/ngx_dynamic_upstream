@@ -1,8 +1,6 @@
 use lib 'lib';
 use Test::Nginx::Socket;
 
-#repeat_each(2);
-
 plan tests => repeat_each() * 2 * blocks();
 
 run_tests();
@@ -22,7 +20,7 @@ __DATA__
         dynamic_upstream;
     }
 --- request
-    GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&down=
+    GET /dynamic?upstream=backends&server=127.0.0.1:6003&down=
 --- response_body
 server 127.0.0.1:6001 addr=127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 server 127.0.0.1:6002 addr=127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
@@ -42,6 +40,6 @@ server 127.0.0.1:6003 addr=127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10 m
         dynamic_upstream;
     }
 --- request
-    GET /dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&down=&up=
---- response_body_like: 400 Bad Request
+    GET /dynamic?upstream=backends&server=127.0.0.1:6003&down=&up=
+--- response_body_like: down and up at once are not allowed
 --- error_code: 400
