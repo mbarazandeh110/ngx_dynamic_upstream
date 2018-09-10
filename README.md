@@ -5,6 +5,8 @@ such as [`ngx_http_upstream_conf`](http://nginx.org/en/docs/http/ngx_http_upstre
 
 This module also supports stream upstreams manipulation.
 
+Online reconfiguration upstream addresses from DNS by hostname without reloads.
+
 # Build status
 [![Build Status](https://travis-ci.org/ZigzagAK/ngx_dynamic_upstream.svg)](https://travis-ci.org/ZigzagAK/ngx_dynamic_upstream)
 
@@ -25,7 +27,23 @@ Production ready.
 |Default|-|
 |Context|location|
 
-Now `ngx_dynamic_upstream` supports dynamic upstream under only `http` context.
+## dns_update
+
+|Syntax |dns_update 60s|
+|-------|----------------|
+|Default|-|
+|Context|upstream|
+
+Background synchronization hosts addresses by DNS.
+
+## dns_ipv6
+
+|Syntax |dns_ipv6 on|
+|-------|----------------|
+|Default|-|
+|Context|upstream|
+
+Include IPv6 addresses.
 
 # Quick Start
 
@@ -69,6 +87,34 @@ stream {
 }
 ```
 
+## DNS background updates
+
+```nginx
+http {
+    upstream mail {
+        zone mail 1m;
+        dns_update 60s;
+        dns_ipv6 off;
+        server mail.ru;
+        server google.com backup;
+    }
+
+    server {
+        listen 6000;
+
+        location /dynamic {
+            allow 127.0.0.1;
+            deny all;
+            dynamic_upstream;
+        }
+
+        location / {
+            proxy_pass http://backends;
+        }
+    }
+}
+```
+
 # HTTP APIs
 
 You can operate upstreams dynamically with HTTP APIs.
@@ -76,27 +122,41 @@ You can operate upstreams dynamically with HTTP APIs.
 ## list
 
 ```bash
-$ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends"
-server 127.0.0.1:6001;
-server 127.0.0.1:6002;
-server 127.0.0.1:6003;
+$ curl "http://127.0.0.1:6000/dynamic?upstream=mail"
+server mail.ru addr=217.69.139.201:80;
+server mail.ru addr=94.100.180.201:80;
+server mail.ru addr=217.69.139.200:80;
+server mail.ru addr=94.100.180.200:80;
+server google.com addr=173.194.73.139:80 backup;
+server google.com addr=173.194.73.100:80 backup;
+server google.com addr=173.194.73.101:80 backup;
+server google.com addr=173.194.73.138:80 backup;
+server google.com addr=173.194.73.102:80 backup;
+server google.com addr=173.194.73.113:80 backup;
 $
 ```
 
 ## verbose
 
 ```bash
-$ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends&verbose="
-server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+$ curl "http://127.0.0.1:6000/dynamic?upstream=mail&verbose="
+server mail.ru addr=94.100.180.200:80 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server mail.ru addr=94.100.180.201:80 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server mail.ru addr=217.69.139.200:80 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server mail.ru addr=217.69.139.201:80 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
+server google.com addr=64.233.165.101:80 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0 backup;
+server google.com addr=64.233.165.102:80 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0 backup;
+server google.com addr=64.233.165.139:80 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0 backup;
+server google.com addr=64.233.165.138:80 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0 backup;
+server google.com addr=64.233.165.100:80 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0 backup;
+server google.com addr=64.233.165.113:80 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0 backup;
 $
 ```
 
 ## update_parameters
 
 ```bash
-$ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&weight=10&max_fails=5&fail_timeout=5&max_conns=10"
+$ curl "http://127.0.0.1:6000/dynamic?upstream=backends&server=127.0.0.1:6003&weight=10&max_fails=5&fail_timeout=5&max_conns=10"
 server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 server 127.0.0.1:6003 weight=10 max_fails=5 fail_timeout=5 max_conns=10 conns=0;
@@ -112,7 +172,7 @@ The supported parameters are below.
 ## down
 
 ```bash
-$ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&down="
+$ curl "http://127.0.0.1:6000/dynamic?upstream=backends&server=127.0.0.1:6003&down="
 server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 server 127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0 down;
@@ -122,17 +182,17 @@ $
 ## up
 
 ```bash
-$ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends&server=127.0.0.1:6003&up="
+$ curl "http://127.0.0.1:6000/dynamic?upstream=backends&server=127.0.0.1:6003&up="
 server 127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 server 127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 server 127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 $
 ```
 
-## add
+## add peer
 
 ```bash
-$ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends&add=&server=127.0.0.1:6004"
+$ curl "http://127.0.0.1:6000/dynamic?upstream=backends&add=&server=127.0.0.1:6004"
 server 127.0.0.1:6001;
 server 127.0.0.1:6002;
 server 127.0.0.1:6003;
@@ -140,10 +200,18 @@ server 127.0.0.1:6004;
 $
 ```
 
-## add backup
+## add host
+```bash
+$ curl "http://127.0.0.1:6000/dynamic?upstream=backends&add=&server=localhost:6004"
+DNS resolving in progress
+$
+```
+Peers will be added in background.
+
+## add backup peer
 
 ```bash
-$ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends&add=&server=127.0.0.1:6004&backup="
+$ curl "http://127.0.0.1:6000/dynamic?upstream=backends&add=&server=127.0.0.1:6004&backup="
 server 127.0.0.1:6001;
 server 127.0.0.1:6002;
 server 127.0.0.1:6003;
@@ -151,10 +219,20 @@ server 127.0.0.1:6004 backup;
 $
 ```
 
-## remove
+## remove peer
 
 ```bash
-$ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends&remove=&server=127.0.0.1:6003"
+$ curl "http://127.0.0.1:6000/dynamic?upstream=backends&remove=&server=127.0.0.1:6003"
+server 127.0.0.1:6001;
+server 127.0.0.1:6002;
+server 127.0.0.1:6004;
+$
+```
+
+## remove server
+
+```bash
+$ curl "http://127.0.0.1:6000/dynamic?upstream=backends&remove=&server=mail.ru"
 server 127.0.0.1:6001;
 server 127.0.0.1:6002;
 server 127.0.0.1:6004;
@@ -164,7 +242,7 @@ $
 ## add stream
 
 ```bash
-$ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends_stream&add=&server=127.0.0.1:6004&stream="
+$ curl "http://127.0.0.1:6000/dynamic?upstream=backends_stream&add=&server=127.0.0.1:6004&stream="
 server 127.0.0.1:6001;
 server 127.0.0.1:6002;
 server 127.0.0.1:6003;
@@ -175,7 +253,7 @@ $
 ## add backup stream
 
 ```bash
-$ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends_stream&add=&server=127.0.0.1:6004&backup=&stream="
+$ curl "http://127.0.0.1:6000/dynamic?upstream=backends_stream&add=&server=127.0.0.1:6004&backup=&stream="
 server 127.0.0.1:6001;
 server 127.0.0.1:6002;
 server 127.0.0.1:6003;
@@ -186,7 +264,7 @@ $
 ## remove stream
 
 ```bash
-$ curl "http://127.0.0.1:6000/dynamic?upstream=zone_for_backends_stream&remove=&server=127.0.0.1:6003&stream="
+$ curl "http://127.0.0.1:6000/dynamic?upstream=backends_stream&remove=&server=127.0.0.1:6003&stream="
 server 127.0.0.1:6001;
 server 127.0.0.1:6002;
 server 127.0.0.1:6004;
