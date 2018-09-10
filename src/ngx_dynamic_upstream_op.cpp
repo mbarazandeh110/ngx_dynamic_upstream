@@ -35,7 +35,6 @@ static const ngx_str_t ngx_dynamic_upstream_params[] = {
     ngx_string("arg_up"),
     ngx_string("arg_down"),
     ngx_string("arg_stream"),
-    ngx_string("arg_resolve"),
     ngx_string("arg_ipv6")
 };
 
@@ -144,9 +143,6 @@ ngx_dynamic_upstream_build_op(ngx_http_request_t *r,
             } else if (ngx_strcmp("arg_remove", args[i].data) == 0) {
                 op->op |= NGX_DYNAMIC_UPSTEAM_OP_REMOVE;
 
-            } else if (ngx_strcmp("arg_sync", args[i].data) == 0) {
-                op->op |= NGX_DYNAMIC_UPSTEAM_OP_SYNC;
-
             } else if (ngx_strcmp("arg_backup", args[i].data) == 0) {
                 op->backup = 1;
 
@@ -218,9 +214,6 @@ ngx_dynamic_upstream_build_op(ngx_http_request_t *r,
             } else if (ngx_strcmp("arg_stream", args[i].data) == 0) {
                 op->op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM;
 
-            } else if (ngx_strcmp("arg_resolve", args[i].data) == 0) {
-                op->op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE;
-
             } else if (ngx_strcmp("arg_ipv6", args[i].data) == 0) {
                 op->op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6;
 
@@ -230,11 +223,10 @@ ngx_dynamic_upstream_build_op(ngx_http_request_t *r,
 
     /* can not add, sync and remove at once */
     if ((op->op & NGX_DYNAMIC_UPSTEAM_OP_ADD    ? 1 : 0) +
-        (op->op & NGX_DYNAMIC_UPSTEAM_OP_REMOVE ? 1 : 0) +
-        (op->op & NGX_DYNAMIC_UPSTEAM_OP_SYNC   ? 1 : 0) > 1)
+        (op->op & NGX_DYNAMIC_UPSTEAM_OP_REMOVE ? 1 : 0) > 1)
     {
         op->status = NGX_HTTP_BAD_REQUEST;
-        op->err = "add, sync and remove at once are not allowed";
+        op->err = "add and remove at once are not allowed";
         return NGX_ERROR;
     }
 
@@ -246,13 +238,20 @@ ngx_dynamic_upstream_build_op(ngx_http_request_t *r,
     }
 
     if (op->op & NGX_DYNAMIC_UPSTEAM_OP_ADD)
-         op->op = NGX_DYNAMIC_UPSTEAM_OP_ADD;
+        op->op = NGX_DYNAMIC_UPSTEAM_OP_ADD;
     else if (op->op & NGX_DYNAMIC_UPSTEAM_OP_REMOVE)
         op->op = NGX_DYNAMIC_UPSTEAM_OP_REMOVE;
-    else if (op->op & NGX_DYNAMIC_UPSTEAM_OP_SYNC)
-        op->op = NGX_DYNAMIC_UPSTEAM_OP_SYNC;
     else if (op->op == 0)
         op->op = NGX_DYNAMIC_UPSTEAM_OP_LIST;
+
+    if ((op->op & NGX_DYNAMIC_UPSTEAM_OP_ADD) ||
+        (op->op & NGX_DYNAMIC_UPSTEAM_OP_REMOVE)) {
+        if (op->server.data == NULL) {
+            op->err = "'server' argument required";
+            op->status = NGX_HTTP_BAD_REQUEST;
+            return NGX_ERROR;
+        }
+    }
 
     return NGX_OK;
 }
@@ -547,8 +546,15 @@ ngx_dynamic_upstream_op_add(ngx_log_t *log,
         return NGX_ERROR;
 
     if (rc == NGX_AGAIN) {
-        op->down = 2;
-        op->op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN;
+        if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE) {
+            op->down = 2;
+            op->op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN;
+        } else {
+            op->err = "domain names are supported only for upstreams "
+                      "with 'dns_update' directive";
+            op->status = NGX_HTTP_BAD_REQUEST;
+            return NGX_ERROR;
+        }
     }
 
     if (ngx_dynamic_upstream_op_add_impl<PeersT, PeerT>(log, op,
@@ -800,15 +806,16 @@ ngx_dynamic_upstream_op_sync(ngx_log_t *log,
 
     for (peers = primary; peers; peers = peers->next) {
         for (peer = peers->peer; peer; peer = peer->next) {
-            if (!ngx_dynamic_upstream_op_peer_exist(guard.servers, &peer->name))
+            if ((peer->name.data[0] == '[' &&
+                !(op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6)) ||
+                !ngx_dynamic_upstream_op_peer_exist(guard.servers, &peer->name))
             {
                 op->server = peer->name;
                 if (ngx_dynamic_upstream_op_del<PeersT, PeerT>
                        (log, op, shpool, primary) == NGX_ERROR)
                     return NGX_ERROR;
 
-                if (op->status == NGX_HTTP_OK)
-                    count++;
+                count++;
             }
         }
     }

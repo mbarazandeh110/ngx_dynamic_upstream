@@ -2,9 +2,11 @@ XXXX-XX-XX Aleksey Konovkin <alkon2000@mail.ru>
 
         * upstream parameter is a name of upstream
 
-        * add all peers from DNS (DNS balancing)
+        * DNS balancing
 
-        * sync directive in upstream
+        * 'dns_update' directive in upstream
+
+        * 'dns_ipv6' directive in upstream
 
 2016-11-25 Aleksey Konovkin <alkon2000@mail.ru>
 
