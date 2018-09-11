@@ -460,8 +460,8 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
 
     peers->total_weight += npeer->weight;
     peers->single = (peers->number == 0);
-    peers->weighted = (peers->total_weight != peers->number);
     peers->number++;
+    peers->weighted = (peers->total_weight != peers->number);
 
     if (backup != NULL && primary->next == NULL)
         primary->next = backup;
