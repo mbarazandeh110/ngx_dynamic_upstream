@@ -80,23 +80,6 @@ ngx_pool_pnalloc(ngx_pool_t *pool, size_t size)
 }
 
 
-/*static ngx_int_t
-ngx_dynamic_upstream_is_shpool_range(ngx_slab_pool_t *shpool, void *p)
-{
-    if ((u_char *) p < shpool->start || (u_char *) p > shpool->end)
-        return 0;
-
-    return 1;
-}*/
-
-static void
-ngx_shm_free(ngx_slab_pool_t *shpool, void *p)
-{
-    //if (ngx_dynamic_upstream_is_shpool_range(shpool, p))
-        ngx_slab_free(shpool, p);
-}
-
-
 ngx_int_t
 ngx_dynamic_upstream_build_op(ngx_http_request_t *r,
     ngx_dynamic_upstream_op_t *op)
@@ -480,7 +463,7 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
     peers->weighted = (peers->total_weight != peers->number);
     peers->number++;
 
-    if (backup && primary->next == NULL)
+    if (backup != NULL && primary->next == NULL)
         primary->next = backup;
 
     if (!is_reserved_addr(&u->addrs[i].name))
@@ -492,13 +475,17 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
 fail:
 
     if (npeer != NULL) {
-        ngx_shm_free(shpool, npeer->server.data);
-        ngx_shm_free(shpool, npeer->name.data);
-        ngx_shm_free(shpool, npeer->sockaddr);
+        if (npeer->server.data != NULL)
+            ngx_slab_free(shpool, npeer->server.data);
+        if (npeer->name.data != NULL)
+            ngx_slab_free(shpool, npeer->name.data);
+        if (npeer->sockaddr != NULL)
+            ngx_slab_free(shpool, npeer->sockaddr);
+        ngx_slab_free(shpool, npeer);
     }
 
-    if (backup && primary->next == NULL)
-        ngx_shm_free(shpool, backup);
+    if (backup != NULL && primary->next == NULL)
+        ngx_slab_free(shpool, backup);
 
     op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
     op->err = "no shared memory";
@@ -914,15 +901,13 @@ private:
       ngx_upstream_rr_peer_lock<PeerT> lock(peer);
 
       if (peer->conns == 0) {
-          ngx_shm_free(shpool, peer->server.data);
-
-          ngx_shm_free(shpool, peer->name.data);
-
-          ngx_shm_free(shpool, peer->sockaddr);
+          ngx_slab_free(shpool, peer->server.data);
+          ngx_slab_free(shpool, peer->name.data);
+          ngx_slab_free(shpool, peer->sockaddr);
 
           lock.release();
 
-          ngx_shm_free(shpool, peer);
+          ngx_slab_free(shpool, peer);
 
           return 0;
       }
@@ -1032,7 +1017,7 @@ del:
     if (peers->number == 0) {
         assert(peers == backup);
         primary->next = NULL;
-        ngx_shm_free(shpool, backup);
+        ngx_slab_free(shpool, backup);
     }
 
     if (!is_reserved_addr(&deleted->name))
