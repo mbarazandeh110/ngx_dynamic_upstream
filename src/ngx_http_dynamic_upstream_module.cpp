@@ -574,7 +574,7 @@ ngx_dynamic_upstream_loop()
 
         time(&now);
 
-        if (ucscf->last + (time_t) ucscf->interval / 1000 > now)
+        if (ucscf->last + (time_t) ucscf->interval > now)
             continue;
 
         ucscf->last = now;
@@ -594,15 +594,15 @@ ngx_dynamic_upstream_loop()
 
         ngx_dynamic_upstream_loop_conf_cb(uscf[j], &conf, &op);
 
+        ngx_time_update();
+
         if (ngx_dynamic_upstream_op(ngx_cycle->log, &op, &conf) == NGX_OK) {
-            ngx_time_update();
-            ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
-                          "%V: dns synced", &op.upstream);
-        } else if (op.status == NGX_HTTP_INTERNAL_SERVER_ERROR) {
-            ngx_time_update();
+            if (op.status == NGX_HTTP_OK)
+                ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
+                              "%V: dns synced", &op.upstream);
+        } else if (op.status == NGX_HTTP_INTERNAL_SERVER_ERROR)
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "%V: %s",
                           &op.upstream, op.err);
-        }
     }
 }
 
@@ -634,7 +634,7 @@ ngx_http_dynamic_upstream_thread(void *)
 static ngx_int_t
 ngx_http_dynamic_upstream_init_worker(ngx_cycle_t *cycle)
 {
-    if (ngx_worker == 0)
+    if (ngx_worker == 0) {
         if (pthread_create((pthread_t *) &DNS_sync_thr, NULL,
             ngx_http_dynamic_upstream_thread, NULL) != 0) {
             ngx_log_error(NGX_LOG_CRIT, cycle->log, 0,
@@ -642,8 +642,9 @@ ngx_http_dynamic_upstream_init_worker(ngx_cycle_t *cycle)
             return NGX_ERROR;
         }
 
-    ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
-                  "DNS dynamic resolver thread started");
+        ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
+                      "DNS dynamic resolver thread started");
+    }
 
     return NGX_OK;
 }
