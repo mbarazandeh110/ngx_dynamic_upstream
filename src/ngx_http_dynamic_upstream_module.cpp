@@ -437,7 +437,8 @@ resp:
         ngx_dynamic_upstream_response(&conf, b, size, op.verbose);
     else {
         if (op.status == NGX_HTTP_INTERNAL_SERVER_ERROR) {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, op.err);
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "%V: %s",
+                          &op.upstream, op.err);
         }
         b->last = ngx_snprintf(b->last, size, op.err);
     }
@@ -583,6 +584,7 @@ ngx_dynamic_upstream_loop()
         conf.shpool = (ngx_slab_pool_t *) uscf[j]->shm_zone->shm.addr;
         conf.peers = uscf[j]->peer.data;
 
+        op.upstream = uscf[j]->host;
         op.op = NGX_DYNAMIC_UPSTEAM_OP_SYNC;
         op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE;
         if (ucscf->ipv6 == 1)
@@ -595,10 +597,11 @@ ngx_dynamic_upstream_loop()
         if (ngx_dynamic_upstream_op(ngx_cycle->log, &op, &conf) == NGX_OK) {
             ngx_time_update();
             ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
-                          "DNS dynamic resolver: %V synced", &uscf[j]->host);
+                          "%V: dns synced", &op.upstream);
         } else if (op.status == NGX_HTTP_INTERNAL_SERVER_ERROR) {
             ngx_time_update();
-            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, op.err);
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "%V: %s",
+                          &op.upstream, op.err);
         }
     }
 }

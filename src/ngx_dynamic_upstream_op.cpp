@@ -346,7 +346,8 @@ ngx_dynamic_upstream_parse_url(ngx_url_t *u,
     u->no_resolve = no_resolve;
 
     if (ngx_parse_url_slab(shpool, u) != NGX_OK) {
-        op->err = u->err;
+        if (u->err)
+            op->err = u->err;
         op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
         return NGX_ERROR;
     }
@@ -356,7 +357,8 @@ ngx_dynamic_upstream_parse_url(ngx_url_t *u,
             u->url = op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE
                    ? resolve_addr : no_resolve_addr;
             if (ngx_parse_url_slab(shpool, u) != NGX_OK) {
-                op->err = u->err;
+                if (u->err)
+                    op->err = u->err;
                 op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
                 return NGX_ERROR;
             }
@@ -501,8 +503,8 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
         primary->next = backup;
 
     if (!is_reserved_addr(&u->addrs[i].name))
-        ngx_log_error(NGX_LOG_NOTICE, log, 0, "added server %V peer %V",
-                      &u->url, &u->addrs[i].name);
+        ngx_log_error(NGX_LOG_NOTICE, log, 0, "%V: added server %V peer %V",
+                      &op->upstream, &u->url, &u->addrs[i].name);
 
     return NGX_OK;
 }
@@ -1059,8 +1061,8 @@ del:
     }
 
     if (!is_reserved_addr(&deleted->name))
-        ngx_log_error(NGX_LOG_NOTICE, log, 0, "removed server %V peer %V",
-                      &deleted->server, &deleted->name);
+        ngx_log_error(NGX_LOG_NOTICE, log, 0, "%V: removed server %V peer %V",
+                      &op->upstream, &deleted->server, &deleted->name);
 
     ngx_dynamic_upstream_op_free_peer<PeerT>(shpool, deleted);
 
@@ -1098,14 +1100,16 @@ ngx_dynamic_upstream_op_update_peer(ngx_log_t *log,
         peer->down = 0;
         peer->checked = ngx_time();
         peer->fails = 0;
-        ngx_log_error(NGX_LOG_NOTICE, log, 0, "up peer %V", &peer->name);
+        ngx_log_error(NGX_LOG_NOTICE, log, 0, "%V: up peer %V",
+                      &op->upstream, &peer->name);
     }
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN) {
         peer->down = 1;
         peer->checked = ngx_time();
         peer->fails = peer->max_fails;
-        ngx_log_error(NGX_LOG_NOTICE, log, 0, "down peer %V", &peer->name);
+        ngx_log_error(NGX_LOG_NOTICE, log, 0, "%V: down peer %V",
+                      &op->upstream, &peer->name);
     }
 }
 
