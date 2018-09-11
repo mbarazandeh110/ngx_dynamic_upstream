@@ -6,13 +6,11 @@ ngx_addon_name="                        \
 DYNAMIC_UPSTREAM_SRCS="                                     \
     $ngx_addon_dir/src/ngx_http_dynamic_upstream_module.cpp \
     $ngx_addon_dir/src/ngx_dynamic_upstream_op.cpp          \
-    $ngx_addon_dir/src/ngx_inet_slab.c                      \
 "
 
 DYNAMIC_UPSTREAM_DEPS="                              \
     $ngx_addon_dir/src/ngx_dynamic_upstream_module.h \
     $ngx_addon_dir/src/ngx_dynamic_upstream_op.h     \
-    $ngx_addon_dir/src/ngx_inet_slab.h               \
 "
 
 CORE_INCS="$CORE_INCS $ngx_addon_dir/src"

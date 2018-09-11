@@ -3,11 +3,10 @@ extern "C" {
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
+#include <ngx_inet.h>
 
 
 #include <assert.h>
-
-#include "ngx_inet_slab.h"
 
 }
 
@@ -81,20 +80,20 @@ ngx_pool_pnalloc(ngx_pool_t *pool, size_t size)
 }
 
 
-static ngx_int_t
+/*static ngx_int_t
 ngx_dynamic_upstream_is_shpool_range(ngx_slab_pool_t *shpool, void *p)
 {
     if ((u_char *) p < shpool->start || (u_char *) p > shpool->end)
         return 0;
 
     return 1;
-}
+}*/
 
 static void
-ngx_shm_free(ngx_slab_pool_t *pool, void *p)
+ngx_shm_free(ngx_slab_pool_t *shpool, void *p)
 {
-    if (ngx_dynamic_upstream_is_shpool_range(pool, p))
-       ngx_slab_free(pool, p);
+    //if (ngx_dynamic_upstream_is_shpool_range(shpool, p))
+        ngx_slab_free(shpool, p);
 }
 
 
@@ -336,7 +335,7 @@ is_reserved_addr(ngx_str_t *addr)
 
 static ngx_int_t
 ngx_dynamic_upstream_parse_url(ngx_url_t *u,
-    ngx_slab_pool_t *shpool,
+    ngx_pool_t *pool,
     ngx_dynamic_upstream_op_t *op, unsigned no_resolve = 1)
 {
     ngx_memzero(u, sizeof(ngx_url_t));
@@ -345,7 +344,7 @@ ngx_dynamic_upstream_parse_url(ngx_url_t *u,
     u->default_port = 80;
     u->no_resolve = no_resolve;
 
-    if (ngx_parse_url_slab(shpool, u) != NGX_OK) {
+    if (ngx_parse_url(pool, u) != NGX_OK) {
         if (u->err)
             op->err = u->err;
         op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -356,7 +355,7 @@ ngx_dynamic_upstream_parse_url(ngx_url_t *u,
         if (no_resolve) {
             u->url = op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE
                    ? resolve_addr : no_resolve_addr;
-            if (ngx_parse_url_slab(shpool, u) != NGX_OK) {
+            if (ngx_parse_url(pool, u) != NGX_OK) {
                 if (u->err)
                     op->err = u->err;
                 op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -375,32 +374,12 @@ ngx_dynamic_upstream_parse_url(ngx_url_t *u,
 }
 
 
-static void
-ngx_dynamic_upstream_free_addrs(ngx_slab_pool_t *shpool,
-    ngx_addr_t *addrs, unsigned naddrs)
-{
-    unsigned  j;
-
-    if (addrs == NULL)
-        return;
-
-    for (j = 0; j < naddrs; ++j) {
-        if (addrs[j].sockaddr != NULL) {
-            ngx_shm_free(shpool, addrs[j].sockaddr);
-            ngx_shm_free(shpool, addrs[j].name.data);
-        }
-    }
-
-    ngx_shm_free(shpool, addrs);
-}
-
-
 template <class PeersT, class PeerT> static ngx_int_t
 ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
     ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool,
     PeersT *primary, ngx_url_t *u, int i)
 {
-    PeerT   *peer, *last = NULL, *new_peer;
+    PeerT   *peer, *last = NULL, *npeer;
     PeersT  *peers, *backup = primary->next;
 
     if (u->addrs[i].name.data[0] == '[' &&
@@ -442,59 +421,61 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
     } else
         peers = primary;
 
-    new_peer = ngx_shm_calloc<PeerT>(shpool);
-    if (new_peer != NULL) {
-        new_peer->server.data = ngx_shm_calloc<u_char>(shpool, u->url.len + 1);
-        if (new_peer->server.data == NULL) {
-            ngx_shm_free(shpool, new_peer);
-            new_peer = NULL;
-        }
-    }
+    npeer = ngx_shm_calloc<PeerT>(shpool);
+    if (npeer == NULL)
+        goto fail;
 
-    if (new_peer == NULL) {
-        if (backup && primary->next == NULL)
-            ngx_shm_free(shpool, backup);
+    npeer->server.data = ngx_shm_calloc<u_char>(shpool, u->url.len + 1);
+    npeer->name.data = ngx_shm_calloc<u_char>(shpool, u->addrs[i].name.len + 1);
+    npeer->sockaddr = ngx_shm_calloc<sockaddr>(shpool, u->addrs[i].socklen);
 
-        op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
-        op->err = "no shared memory";
-        return NGX_ERROR;
-    }
+    if (npeer->server.data == NULL)
+        goto fail;
 
-    new_peer->name       = u->addrs[i].name;
-    new_peer->server.len = u->url.len;
-    ngx_memcpy(new_peer->server.data, u->url.data, u->url.len);
-    new_peer->sockaddr   = u->addrs[i].sockaddr;
-    new_peer->socklen    = u->addrs[i].socklen;
+    if (npeer->name.data == NULL)
+        goto fail;
+
+    if (npeer->sockaddr == NULL)
+        goto fail;
+
+    npeer->name.len = u->addrs[i].name.len;
+    ngx_memcpy(npeer->name.data, u->addrs[i].name.data, npeer->name.len);
+ 
+    npeer->server.len = u->url.len;
+    ngx_memcpy(npeer->server.data, u->url.data, npeer->server.len);
+
+    npeer->socklen = u->addrs[i].socklen;
+    ngx_memcpy(npeer->sockaddr, u->addrs[i].sockaddr, npeer->socklen);
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_WEIGHT) {
-        new_peer->weight = op->weight;
-        new_peer->effective_weight = op->weight;
-        new_peer->current_weight = 0;
+        npeer->weight = op->weight;
+        npeer->effective_weight = op->weight;
+        npeer->current_weight = 0;
     } else {
-        new_peer->weight = 1;
-        new_peer->effective_weight = 1;
-        new_peer->current_weight = 0;
+        npeer->weight = 1;
+        npeer->effective_weight = 1;
+        npeer->current_weight = 0;
     }
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_MAX_FAILS)
-        new_peer->max_fails = op->max_fails;
+        npeer->max_fails = op->max_fails;
     else
-        new_peer->max_fails = 1;
+        npeer->max_fails = 1;
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_FAIL_TIMEOUT)
-        new_peer->fail_timeout = op->fail_timeout;
+        npeer->fail_timeout = op->fail_timeout;
     else
-        new_peer->fail_timeout = 10;
+        npeer->fail_timeout = 10;
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN)
-        new_peer->down = op->down;
+        npeer->down = op->down;
 
     if (last == NULL)
-        peers->peer = new_peer;
+        peers->peer = npeer;
     else
-        last->next = new_peer;
+        last->next = npeer;
 
-    peers->total_weight += new_peer->weight;
+    peers->total_weight += npeer->weight;
     peers->single = (peers->number == 0);
     peers->weighted = (peers->total_weight != peers->number);
     peers->number++;
@@ -507,6 +488,22 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
                       &op->upstream, &u->url, &u->addrs[i].name);
 
     return NGX_OK;
+
+fail:
+
+    if (npeer != NULL) {
+        ngx_shm_free(shpool, npeer->server.data);
+        ngx_shm_free(shpool, npeer->name.data);
+        ngx_shm_free(shpool, npeer->sockaddr);
+    }
+
+    if (backup && primary->next == NULL)
+        ngx_shm_free(shpool, backup);
+
+    op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
+    op->err = "no shared memory";
+
+    return NGX_ERROR;
 }
 
 
@@ -524,25 +521,35 @@ ngx_dynamic_upstream_op_add_impl(ngx_log_t *log,
     for (i = 0; i < u->naddrs; ++i) {
         if (ngx_dynamic_upstream_op_add_peer<PeersT, PeerT>(log, op, shpool,
                 primary, u, i) == NGX_ERROR) {
-            ngx_dynamic_upstream_free_addrs(shpool, u->addrs, u->naddrs);
             return NGX_ERROR;
         }
 
         if (op->status == NGX_HTTP_OK)
            count++;
 
-        u->addrs[i].sockaddr = NULL;
-
         if (!resolve)
             break;
     }
-
-    ngx_dynamic_upstream_free_addrs(shpool, u->addrs, u->naddrs);
 
     op->status = count != 0 ? NGX_HTTP_OK : NGX_HTTP_NOT_MODIFIED;
 
     return NGX_OK;
 }
+
+
+struct ngx_pool_auto {
+    ngx_pool_t   *pool;
+
+    ngx_pool_auto(ngx_uint_t size, ngx_log_t *log)
+    	: pool(ngx_create_pool(size, log))
+    {}
+
+    ~ngx_pool_auto()
+    {
+        if (pool != NULL)
+            ngx_destroy_pool(pool);
+    }
+};
 
 
 template <class PeersT, class PeerT> static ngx_int_t
@@ -553,7 +560,15 @@ ngx_dynamic_upstream_op_add(ngx_log_t *log,
     ngx_url_t  u;
     ngx_int_t  rc;
 
-    if ((rc = ngx_dynamic_upstream_parse_url(&u, shpool, op)) == NGX_ERROR)
+    ngx_pool_auto guard(ngx_pagesize * 30, log);
+
+    if (guard.pool == NULL) {
+        op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
+        op->err = "no memory";
+        return NGX_ERROR;
+    }
+
+    if ((rc = ngx_dynamic_upstream_parse_url(&u, guard.pool, op)) == NGX_ERROR)
         return NGX_ERROR;
 
     if (rc == NGX_AGAIN) {
@@ -616,19 +631,6 @@ ngx_dynamic_upstream_op_server_exist(ngx_array_t *servers,
     }
 
     return 0;
-}
-
-
-static void
-ngx_dynamic_upstream_free_servers(ngx_slab_pool_t *shpool,
-    ngx_array_t *servers)
-{
-    ngx_server_t   *server = (ngx_server_t *) servers->elts;
-    unsigned        j;
-
-    for (j = 0; j < servers->nelts; ++j)
-        ngx_dynamic_upstream_free_addrs(shpool, server[j].u.addrs,
-                                        server[j].u.naddrs);
 }
 
 
@@ -696,27 +698,6 @@ ngx_dynamic_upstream_op_servers(PeersT *primary,
 }
 
 
-struct ngx_sync_guard {
-    ngx_pool_t      *pool;
-    ngx_array_t     *servers;
-    ngx_slab_pool_t *shpool;
-
-    ngx_sync_guard(ngx_slab_pool_t *sh)
-    	  : pool(NULL), servers(NULL), shpool(sh)
-    {}
-
-    ~ngx_sync_guard()
-    {
-        if (pool != NULL)
-            ngx_destroy_pool(pool);
-
-        if (servers != NULL)
-            ngx_dynamic_upstream_free_servers(shpool, servers);
-
-    }
-};
-
-
 template <class PeersT, class PeerT> static ngx_int_t
 ngx_dynamic_upstream_op_sync(ngx_log_t *log,
     ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool,
@@ -728,12 +709,11 @@ ngx_dynamic_upstream_op_sync(ngx_log_t *log,
     PeerT           *peer;
     PeersT          *peers;
     unsigned         count = 0;
+    ngx_array_t     *servers;
 
     resolve = op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE;
 
-    ngx_sync_guard guard(shpool);
-
-    guard.pool = ngx_create_pool(ngx_pagesize * 30, log);
+    ngx_pool_auto guard(ngx_pagesize * 30, log);
 
     if (guard.pool == NULL) {
         op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -741,15 +721,15 @@ ngx_dynamic_upstream_op_sync(ngx_log_t *log,
         return NGX_ERROR;
     }
 
-    guard.servers = ngx_array_create(guard.pool, 100, sizeof(ngx_server_t));
-    if (guard.servers == NULL) {
+    servers = ngx_array_create(guard.pool, 100, sizeof(ngx_server_t));
+    if (servers == NULL) {
         op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
         op->err = "no memory";
         return NGX_ERROR;
     }
 
     if (ngx_dynamic_upstream_op_servers<PeersT, PeerT>(primary,
-                                                       guard.servers,
+                                                       servers,
                                                        guard.pool)
         == NGX_ERROR)
     {
@@ -758,11 +738,11 @@ ngx_dynamic_upstream_op_sync(ngx_log_t *log,
         return NGX_ERROR;
     }
 
-    server = (ngx_server_t *) guard.servers->elts;
+    server = (ngx_server_t *) servers->elts;
 
-    for (j = 0; j < guard.servers->nelts; ++j) {
+    for (j = 0; j < servers->nelts; ++j) {
         op->server = server[j].name;
-        if (ngx_dynamic_upstream_parse_url(&server[j].u, shpool,
+        if (ngx_dynamic_upstream_parse_url(&server[j].u, guard.pool,
                                            op, 0) != NGX_OK)
             return NGX_ERROR;
     }
@@ -778,7 +758,7 @@ ngx_dynamic_upstream_op_sync(ngx_log_t *log,
 
     ngx_upstream_rr_peers_wlock<PeersT> lock(primary);
 
-    for (j = 0; j < guard.servers->nelts; ++j) {
+    for (j = 0; j < servers->nelts; ++j) {
         for (i = 0; i < server[j].u.naddrs; ++i) {
             if (server[j].u.addrs[i].name.len == server[j].name.len &&
                 ngx_memcmp(server[j].u.addrs[i].name.data, server[j].name.data,
@@ -806,8 +786,6 @@ ngx_dynamic_upstream_op_sync(ngx_log_t *log,
             if (op->status == NGX_HTTP_OK)
                 count++;
 
-            server[j].u.addrs[i].sockaddr = NULL;
-
             if (resolve | server[j].resolve)
                 continue;
 
@@ -819,7 +797,7 @@ ngx_dynamic_upstream_op_sync(ngx_log_t *log,
         for (peer = peers->peer; peer; peer = peer->next) {
             if ((peer->name.data[0] == '[' &&
                 !(op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6)) ||
-                !ngx_dynamic_upstream_op_peer_exist(guard.servers, &peer->name))
+                !ngx_dynamic_upstream_op_peer_exist(servers, &peer->name))
             {
                 op->server = peer->name;
                 if (ngx_dynamic_upstream_op_del<PeersT, PeerT>
@@ -936,14 +914,11 @@ private:
       ngx_upstream_rr_peer_lock<PeerT> lock(peer);
 
       if (peer->conns == 0) {
-          if (ngx_dynamic_upstream_is_shpool_range(shpool, peer->server.data))
-              ngx_shm_free(shpool, peer->server.data);
+          ngx_shm_free(shpool, peer->server.data);
 
-          if (ngx_dynamic_upstream_is_shpool_range(shpool, peer->name.data))
-              ngx_shm_free(shpool, peer->name.data);
+          ngx_shm_free(shpool, peer->name.data);
 
-          if (ngx_dynamic_upstream_is_shpool_range(shpool, peer->sockaddr))
-              ngx_shm_free(shpool, peer->sockaddr);
+          ngx_shm_free(shpool, peer->sockaddr);
 
           lock.release();
 
