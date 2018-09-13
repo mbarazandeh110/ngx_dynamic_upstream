@@ -362,8 +362,9 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
     ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool,
     PeersT *primary, ngx_url_t *u, int i)
 {
-    PeerT   *peer, *last = NULL, *npeer;
-    PeersT  *peers, *backup = primary->next;
+    PeerT       *peer, *last = NULL, *npeer;
+    PeersT      *peers, *backup = primary->next;
+    ngx_uint_t   j = 0;
 
     if (u->addrs[i].name.data[0] == '[' &&
         !(op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6)) {
@@ -373,7 +374,7 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
 
     op->status = NGX_HTTP_OK;
 
-    for (peers = primary; peers; peers = peers->next) {
+    for (peers = primary; peers && j < 2; peers = peers->next, j++) {
         for (peer = peers->peer; peer; peer = peer->next) {
             if (u->addrs[i].name.len == peer->name.len &&
                 ngx_strncmp(u->addrs[i].name.data, peer->name.data,
@@ -648,10 +649,11 @@ ngx_dynamic_upstream_op_servers(PeersT *primary,
     PeerT         *peer;
     PeersT        *peers;
     ngx_server_t  *server;
+    ngx_uint_t     i = 0;
 
     ngx_upstream_rr_peers_rlock<PeersT> lock(primary);
 
-    for (peers = primary; peers; peers = peers->next) {
+    for (peers = primary; peers && i < 2; peers = peers->next, i++) {
         for (peer = peers->peer; peer; peer = peer->next) {
             if (!ngx_dynamic_upstream_op_server_exist(servers, &peer->server)) {
                 server = (ngx_server_t *) ngx_array_push(servers);
@@ -780,7 +782,9 @@ ngx_dynamic_upstream_op_sync(ngx_log_t *log,
         }
     }
 
-    for (peers = primary; peers; peers = peers->next) {
+    i = 0;
+
+    for (peers = primary; peers && i < 2; peers = peers->next, i++) {
         for (peer = peers->peer; peer; peer = peer->next) {
             if ((peer->name.data[0] == '[' &&
                 !(op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6)) ||
@@ -820,16 +824,17 @@ static void
 ngx_dynamic_cleanup(ngx_event_t *ev);
 
 
-struct ngx_ngx_dynamic_initizlizer {
-    ngx_ngx_dynamic_initizlizer()
+struct ngx_dynamic_init {
+    ngx_dynamic_init()
     {
+        ngx_memzero(&cleanup_ev, sizeof(ngx_event_t));
+        ngx_memzero(&dumb_conn, sizeof(ngx_connection_t));
         dumb_conn.fd = -1;
         cleanup_ev.handler = ngx_dynamic_cleanup;
         cleanup_ev.data = &dumb_conn;
-        cleanup_ev.log = NULL;
     }
 };
-static ngx_ngx_dynamic_initizlizer init;
+static ngx_dynamic_init init;
 
 
 static ngx_array_t *trash = NULL;
@@ -951,6 +956,7 @@ ngx_dynamic_upstream_op_del(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
     PeerT       *peer, *deleted, *prev;
     PeersT      *peers, *backup = primary->next;
     ngx_int_t    count = 0;
+    ngx_uint_t   i = 0;
 
     op->status = NGX_HTTP_OK;
 
@@ -960,7 +966,7 @@ again:
 
     deleted = NULL;
 
-    for (peers = primary; peers; peers = peers->next) {
+    for (peers = primary; peers && i < 2; peers = peers->next, i++) {
         prev = NULL;
         for (peer = peers->peer; peer; peer = peer->next) {
             if ((op->server.len == peer->server.len &&

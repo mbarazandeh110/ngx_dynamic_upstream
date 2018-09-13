@@ -325,13 +325,14 @@ template <class PeersT, class PeerT> static void
 ngx_dynamic_upstream_response_impl(PeersT *peers,
     ngx_buf_t *b, size_t size, ngx_int_t verbose)
 {
-    PeerT   *peer;
-    PeersT  *backup = peers->next;
-    u_char  *last = b->last + size;
+    PeerT      *peer;
+    PeersT     *backup = peers->next;
+    u_char     *last = b->last + size;
+    ngx_uint_t  i;
 
     ngx_upstream_rr_peers_rlock<PeersT> rlock(peers);
 
-    for (; peers; peers = peers->next) {
+    for (i = 0; peers && i < 2; peers = peers->next, i++) {
         for (peer = peers->peer; peer; peer = peer->next) {
 
             if (is_reserved_addr(&peer->name))
