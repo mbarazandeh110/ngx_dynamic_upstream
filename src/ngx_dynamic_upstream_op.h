@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2015 Tatsuhiko Kubo (cubicdaiya@gmail.com>)
+ * Copyright (C) 2018 Aleksei Konovkin (alkon2000@mail.ru)
+ */
+
 #ifndef NGX_DYNAMIC_UPSTREAM_OP_H
 #define NGX_DYNAMIC_UPSTREAM_OP_H
 

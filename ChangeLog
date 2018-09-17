@@ -1,4 +1,4 @@
-2018-09-10 Aleksey Konovkin <alkon2000@mail.ru>
+2018-09-14 Aleksey Konovkin <alkon2000@mail.ru>
 
         * upstream parameter is a name of upstream
 
@@ -7,6 +7,10 @@
         * 'dns_update' directive in upstream
 
         * 'dns_ipv6' directive in upstream
+
+        * full refactor
+
+        * 2.0.0 released
 
 2016-11-25 Aleksey Konovkin <alkon2000@mail.ru>
 

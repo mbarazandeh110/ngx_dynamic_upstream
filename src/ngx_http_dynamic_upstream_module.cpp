@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2015 Tatsuhiko Kubo (cubicdaiya@gmail.com>)
+ * Copyright (C) 2018 Aleksei Konovkin (alkon2000@mail.ru)
+ */
+
 extern "C" {
 
 #include <ngx_config.h>

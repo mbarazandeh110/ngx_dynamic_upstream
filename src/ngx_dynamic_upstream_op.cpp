@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2015 Tatsuhiko Kubo (cubicdaiya@gmail.com>)
+ * Copyright (C) 2018 Aleksei Konovkin (alkon2000@mail.ru)
+ */
+
 extern "C" {
 
 #include <ngx_config.h>
@@ -528,8 +533,8 @@ ngx_dynamic_upstream_op_add_impl(ngx_log_t *log,
 struct ngx_pool_auto {
     ngx_pool_t   *pool;
 
-    ngx_pool_auto(ngx_uint_t size, ngx_log_t *log)
-    	: pool(ngx_create_pool(size, log))
+    ngx_pool_auto(ngx_log_t *log)
+        : pool(ngx_create_pool(ngx_pagesize - 1, log))
     {}
 
     ~ngx_pool_auto()
@@ -548,7 +553,7 @@ ngx_dynamic_upstream_op_add(ngx_log_t *log,
     ngx_url_t  u;
     ngx_int_t  rc;
 
-    ngx_pool_auto guard(ngx_pagesize * 30, log);
+    ngx_pool_auto guard(log);
 
     if (guard.pool == NULL) {
         op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -702,7 +707,7 @@ ngx_dynamic_upstream_op_sync(ngx_log_t *log,
 
     resolve = op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE;
 
-    ngx_pool_auto guard(ngx_pagesize * 30, log);
+    ngx_pool_auto guard(log);
 
     if (guard.pool == NULL) {
         op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
