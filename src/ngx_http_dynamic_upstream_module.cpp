@@ -561,6 +561,10 @@ ngx_dynamic_upstream_loop()
     ngx_uint_t                       j;
     ngx_dynamic_upstream_srv_conf_t *ucscf;
     time_t                           now = 0;
+    ngx_core_conf_t                 *ccf;
+
+    ccf = (ngx_core_conf_t *) ngx_get_conf(ngx_cycle->conf_ctx,
+                                           ngx_core_module);
 
     umcf = ngx_dynamic_upstream_loop_get_main_conf(umcf);
     if (umcf == NULL)
@@ -572,6 +576,10 @@ ngx_dynamic_upstream_loop()
 
     for (j = 0; j < umcf->upstreams.nelts; j++) {
         if (uscf[j]->shm_zone == NULL)
+            continue;
+
+        if (ngx_process == NGX_PROCESS_WORKER
+            && j % ccf->worker_processes != ngx_worker)
             continue;
 
         ucscf = ngx_dynamic_upstream_get_conf(uscf[j]);
@@ -640,17 +648,18 @@ ngx_http_dynamic_upstream_thread(void *)
 static ngx_int_t
 ngx_http_dynamic_upstream_init_worker(ngx_cycle_t *cycle)
 {
-    if (ngx_worker == 0) {
-        if (pthread_create((pthread_t *) &DNS_sync_thr, NULL,
-            ngx_http_dynamic_upstream_thread, NULL) != 0) {
-            ngx_log_error(NGX_LOG_CRIT, cycle->log, 0,
-                          "errno=%d, %s", errno, strerror(errno));
-            return NGX_ERROR;
-        }
+    if (ngx_process != NGX_PROCESS_WORKER && ngx_process != NGX_PROCESS_SINGLE)
+        return NGX_OK;
 
-        ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
-                      "DNS dynamic resolver thread started");
+    if (pthread_create((pthread_t *) &DNS_sync_thr, NULL,
+        ngx_http_dynamic_upstream_thread, NULL) != 0) {
+        ngx_log_error(NGX_LOG_CRIT, cycle->log, 0,
+                      "errno=%d, %s", errno, strerror(errno));
+        return NGX_ERROR;
     }
+
+    ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
+                  "DNS dynamic resolver thread started");
 
     return NGX_OK;
 }
@@ -660,6 +669,10 @@ static void
 ngx_http_dynamic_upstream_exit_worker(ngx_cycle_t *cycle)
 {
     pthread_t saved = DNS_sync_thr;
+
+    if (ngx_process != NGX_PROCESS_WORKER && ngx_process != NGX_PROCESS_SINGLE)
+        return;
+
     if (DNS_sync_thr) {
         DNS_sync_thr = 0;
         pthread_join(saved, NULL);

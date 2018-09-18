@@ -829,19 +829,6 @@ static void
 ngx_dynamic_cleanup(ngx_event_t *ev);
 
 
-struct ngx_dynamic_init {
-    ngx_dynamic_init()
-    {
-        ngx_memzero(&cleanup_ev, sizeof(ngx_event_t));
-        ngx_memzero(&dumb_conn, sizeof(ngx_connection_t));
-        dumb_conn.fd = -1;
-        cleanup_ev.handler = ngx_dynamic_cleanup;
-        cleanup_ev.data = &dumb_conn;
-    }
-};
-static ngx_dynamic_init init;
-
-
 static ngx_array_t *trash = NULL;
 
 
@@ -852,6 +839,11 @@ ngx_dynamic_trash_init()
                              sizeof(ngx_dynamic_cleanup_t));
 
     if (trash) {
+        ngx_memzero(&cleanup_ev, sizeof(ngx_event_t));
+        ngx_memzero(&dumb_conn, sizeof(ngx_connection_t));
+        dumb_conn.fd = -1;
+        cleanup_ev.handler = ngx_dynamic_cleanup;
+        cleanup_ev.data = &dumb_conn;
         cleanup_ev.log = ngx_cycle->log;
         ngx_add_timer(&cleanup_ev, 1000);
     }
