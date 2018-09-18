@@ -36,6 +36,15 @@ Production ready.
 
 Background synchronization hosts addresses by DNS.
 
+## dns_add_down
+
+|Syntax |dns_add_down on/off|
+|-------|----------------|
+|Default|off|
+|Context|upstream|
+
+Add new peers in down state.
+
 ## dns_ipv6
 
 |Syntax |dns_ipv6 on|

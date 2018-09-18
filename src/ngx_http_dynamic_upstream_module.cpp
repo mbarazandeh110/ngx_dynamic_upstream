@@ -36,6 +36,7 @@ struct ngx_dynamic_upstream_srv_conf_s {
     ngx_msec_t interval;
     time_t     last;
     ngx_flag_t ipv6;
+    ngx_flag_t add_down;
 };
 typedef struct ngx_dynamic_upstream_srv_conf_s
     ngx_dynamic_upstream_srv_conf_t;
@@ -61,6 +62,15 @@ static ngx_command_t ngx_http_dynamic_upstream_commands[] = {
     },
 
     {
+        ngx_string("dns_add_down"),
+        NGX_HTTP_UPS_CONF | NGX_CONF_TAKE1,
+        ngx_conf_set_flag_slot,
+        NGX_HTTP_SRV_CONF_OFFSET,
+        offsetof(ngx_dynamic_upstream_srv_conf_t, add_down),
+        NULL
+    },
+
+    {
         ngx_string("dns_ipv6"),
         NGX_HTTP_UPS_CONF | NGX_CONF_TAKE1,
         ngx_conf_set_flag_slot,
@@ -81,6 +91,15 @@ static ngx_command_t ngx_stream_dynamic_upstream_commands[] = {
         ngx_conf_set_sec_slot,
         NGX_STREAM_SRV_CONF_OFFSET,
         offsetof(ngx_dynamic_upstream_srv_conf_t, interval),
+        NULL
+    },
+
+    {
+        ngx_string("dns_add_down"),
+        NGX_STREAM_UPS_CONF | NGX_CONF_TAKE1,
+        ngx_conf_set_flag_slot,
+        NGX_STREAM_SRV_CONF_OFFSET,
+        offsetof(ngx_dynamic_upstream_srv_conf_t, add_down),
         NULL
     },
 
@@ -488,6 +507,7 @@ ngx_dynamic_upstream_create_srv_conf(ngx_conf_t *cf)
     conf->interval = NGX_CONF_UNSET_MSEC;
     conf->last = 0;
     conf->ipv6 = NGX_CONF_UNSET;
+    conf->add_down = NGX_CONF_UNSET;
 
     return conf;
 }
@@ -605,6 +625,11 @@ ngx_dynamic_upstream_loop()
             op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6;
         op.err = "unexpected";
         op.status = NGX_HTTP_OK;
+
+        if (ucscf->add_down != NGX_CONF_UNSET && ucscf->add_down) {
+            op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN;
+            op.down = 1;
+        }
 
         ngx_dynamic_upstream_loop_conf_cb(uscf[j], &conf, &op);
 

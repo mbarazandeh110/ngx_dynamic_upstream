@@ -566,7 +566,7 @@ ngx_dynamic_upstream_op_add(ngx_log_t *log,
 
     if (rc == NGX_AGAIN) {
         if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE) {
-            op->down = 2;
+            op->down = 1;
             op->op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN;
         } else {
             op->err = "domain names are supported only for upstreams "
@@ -767,7 +767,8 @@ ngx_dynamic_upstream_op_sync(ngx_log_t *log,
         #endif
             op->fail_timeout = server[j].fail_timeout;
 
-            if (server[j].down == 1) {
+            if (server[j].down
+                || (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN)) {
                 op->op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN;
                 op->down = 1;
             } else
