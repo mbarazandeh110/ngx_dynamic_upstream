@@ -680,10 +680,10 @@ ngx_dynamic_upstream_op_servers(PeersT *primary,
                 server->fail_timeout = peer->fail_timeout;
 #if defined(nginx_version) && (nginx_version >= 1011005)
                 server->max_conns    = peer->max_conns;
+#endif
                 server->resolve      = peer->name.len == resolve_addr.len
                     && ngx_memcmp(peer->name.data, resolve_addr.data,
                                   resolve_addr.len) == 0;
-#endif
             }
         }
     }
