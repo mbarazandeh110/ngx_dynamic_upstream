@@ -629,7 +629,8 @@ ngx_dynamic_upstream_loop()
         if (ucscf->add_down != NGX_CONF_UNSET && ucscf->add_down) {
             op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN;
             op.down = 1;
-        }
+        } else
+            op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_UP;
 
         ngx_dynamic_upstream_loop_conf_cb(uscf[j], &conf, &op);
 

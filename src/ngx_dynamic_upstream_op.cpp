@@ -24,7 +24,6 @@ static const ngx_str_t ngx_dynamic_upstream_params[] = {
     ngx_string("arg_verbose"),
     ngx_string("arg_add"),
     ngx_string("arg_remove"),
-    ngx_string("arg_sync"),
     ngx_string("arg_backup"),
     ngx_string("arg_server"),
     ngx_string("arg_weight"),
@@ -674,7 +673,7 @@ ngx_dynamic_upstream_op_servers(PeersT *primary,
                            peer->server.len);
                 server->name.len     = peer->server.len;
                 server->backup       = peers == primary->next;
-                server->down         = peer->down;
+                server->down         = peer->down != 0;
                 server->weight       = peer->weight;
                 server->max_fails    = peer->max_fails;
                 server->fail_timeout = peer->fail_timeout;
@@ -767,12 +766,22 @@ ngx_dynamic_upstream_op_sync(ngx_log_t *log,
         #endif
             op->fail_timeout = server[j].fail_timeout;
 
-            if (server[j].down
-                || (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN)) {
+            if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_UP) {
+
+                op->op_param &= ~NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN;
+                op->down = 0;
+            } else if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN) {
+
+                op->op_param &= ~NGX_DYNAMIC_UPSTEAM_OP_PARAM_UP;
+                op->down = 1;
+            }
+
+            if (!server[j].resolve && server[j].down) {
+
+                op->op_param &= ~NGX_DYNAMIC_UPSTEAM_OP_PARAM_UP;
                 op->op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN;
                 op->down = 1;
-            } else
-                op->op_param &= ~NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN;
+            }
 
             if (ngx_dynamic_upstream_op_add_peer<PeersT, PeerT>
                     (log, op, shpool, primary, &server[j].u, i) == NGX_ERROR)
@@ -888,8 +897,10 @@ ngx_dynamic_cleanup(ngx_event_t *ev)
 
 settimer:
 
-    if (!ngx_exiting)
-        ngx_add_timer(ev, 1000);
+    if (ngx_exiting || ngx_terminate || ngx_quit)
+        return;
+
+    ngx_add_timer(ev, 1000);
 }
 
 
