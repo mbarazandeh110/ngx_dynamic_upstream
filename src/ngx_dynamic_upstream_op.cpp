@@ -384,6 +384,7 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
                 ngx_strncmp(u->addrs[i].name.data, peer->name.data,
                             peer->name.len) == 0) {
                 op->status = NGX_HTTP_NOT_MODIFIED;
+                op->err = "single peer";
                 return NGX_OK;
             }
             if ( (op->backup == 0 && peers == primary) ||
@@ -448,12 +449,17 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_MAX_FAILS)
         npeer->max_fails = op->max_fails;
     else
-        npeer->max_fails = 1;
+        npeer->max_fails = primary->peer->max_fails;
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_FAIL_TIMEOUT)
         npeer->fail_timeout = op->fail_timeout;
     else
-        npeer->fail_timeout = 10;
+        npeer->fail_timeout = primary->peer->fail_timeout;
+
+    if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_MAX_CONNS)
+        npeer->max_conns = op->max_conns;
+    else
+        npeer->max_conns = primary->peer->max_conns;
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN)
         npeer->down = op->down;
