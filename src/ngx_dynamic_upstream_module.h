@@ -36,10 +36,11 @@ extern "C" {
 #define NGX_DYNAMIC_UPSTEAM_OP_PARAM_MAX_CONNS    32
 #endif
 
-#define NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE      64
-#define NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6         128
+#define NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE       64
+#define NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE_SYNC  128
+#define NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6          256
 
-#define NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM       256
+#define NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM        1024
 
 typedef struct ngx_dynamic_upstream_op_t {
     ngx_int_t   verbose;
@@ -64,6 +65,8 @@ typedef struct ngx_dynamic_upstream_op_t {
 
     ngx_uint_t  status;
     const char *err;
+
+    ngx_uint_t  hash;
 } ngx_dynamic_upstream_op_t;
 
 #ifdef __cplusplus

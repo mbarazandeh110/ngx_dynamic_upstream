@@ -33,10 +33,11 @@ ngx_dynamic_upstream_create_srv_conf(ngx_conf_t *cf);
 
 
 struct ngx_dynamic_upstream_srv_conf_s {
-    ngx_msec_t interval;
-    time_t     last;
-    ngx_flag_t ipv6;
-    ngx_flag_t add_down;
+    ngx_msec_t  interval;
+    time_t      last;
+    ngx_uint_t  hash;
+    ngx_flag_t  ipv6;
+    ngx_flag_t  add_down;
 };
 typedef struct ngx_dynamic_upstream_srv_conf_s
     ngx_dynamic_upstream_srv_conf_t;
@@ -608,19 +609,20 @@ ngx_dynamic_upstream_loop()
 
         time(&now);
 
-        if (ucscf->last + (time_t) ucscf->interval > now)
-            continue;
-
-        ucscf->last = now;
+        if (ucscf->last + (time_t) ucscf->interval <= now) {
+            ucscf->hash = 0;
+            ucscf->last = now;
+        }
 
         ngx_memzero(&op, sizeof(ngx_dynamic_upstream_op_t));
 
         conf.shpool = (ngx_slab_pool_t *) uscf[j]->shm_zone->shm.addr;
         conf.peers = uscf[j]->peer.data;
 
+        op.hash = ucscf->hash;
         op.upstream = uscf[j]->host;
         op.op = NGX_DYNAMIC_UPSTEAM_OP_SYNC;
-        op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE;
+        op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE_SYNC;
         if (ucscf->ipv6 == 1)
             op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6;
         op.err = "unexpected";
@@ -629,8 +631,7 @@ ngx_dynamic_upstream_loop()
         if (ucscf->add_down != NGX_CONF_UNSET && ucscf->add_down) {
             op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN;
             op.down = 1;
-        } else
-            op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_UP;
+        }
 
         ngx_dynamic_upstream_loop_conf_cb(uscf[j], &conf, &op);
 
@@ -643,6 +644,8 @@ ngx_dynamic_upstream_loop()
         } else if (op.status == NGX_HTTP_INTERNAL_SERVER_ERROR)
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "%V: %s",
                           &op.upstream, op.err);
+
+        ucscf->hash = op.hash;
     }
 }
 
