@@ -60,6 +60,7 @@ typedef struct ngx_dynamic_upstream_op_t {
     ngx_int_t   down;
     ngx_str_t   upstream;
     ngx_str_t   server;
+    ngx_str_t   name;
 
     ngx_int_t   no_lock;
 

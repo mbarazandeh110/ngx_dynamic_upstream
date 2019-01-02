@@ -26,6 +26,7 @@ static const ngx_str_t ngx_dynamic_upstream_params[] = {
     ngx_string("arg_remove"),
     ngx_string("arg_backup"),
     ngx_string("arg_server"),
+    ngx_string("arg_peer"),
     ngx_string("arg_weight"),
     ngx_string("arg_max_fails"),
 
@@ -359,12 +360,20 @@ ngx_dynamic_upstream_parse_url(ngx_url_t *u,
 
 
 template <class PeerT> static ngx_flag_t
-equals(PeerT *peer, ngx_str_t *cmp)
+equals(PeerT *peer, ngx_str_t *server, ngx_str_t *name)
 {
-    return 0 == ngx_memn2cmp(cmp->data, peer->server.data,
-                             cmp->len, peer->server.len)
-        || 0 == ngx_memn2cmp(cmp->data, peer->name.data,
-                             cmp->len, peer->name.len);
+    if (server && name && server->data && name->data)
+        return ngx_memn2cmp(server->data, peer->server.data,
+                            server->len, peer->server.len) == 0
+            && ngx_memn2cmp(name->data, peer->name.data,
+                            name->len, peer->name.len) == 0;
+
+    assert(server != NULL);
+
+    return ngx_memn2cmp(server->data, peer->server.data,
+                        server->len, peer->server.len) == 0
+        || ngx_memn2cmp(server->data, peer->name.data,
+                        server->len, peer->name.len) == 0;
 }
 
 
@@ -387,12 +396,10 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
 
     for (peers = primary; peers && j < 2; peers = peers->next, j++) {
         for (peer = peers->peer; peer; peer = peer->next) {
-            if (equals<PeerT>(peer, &u->addrs[i].name)) {
-                if (equals<PeerT>(peer, &op->server)) {
-                    op->status = NGX_HTTP_NOT_MODIFIED;
-                    op->err = "exists";
-                    return NGX_OK;
-                }
+            if (equals<PeerT>(peer, &op->server, &u->addrs[i].name)) {
+                op->status = NGX_HTTP_NOT_MODIFIED;
+                op->err = "exists";
+                return NGX_OK;
             }
             if ( (op->backup == 0 && peers == primary) ||
                  (op->backup == 1 && peers == backup) )
@@ -525,7 +532,7 @@ ngx_dynamic_upstream_op_add_impl(ngx_log_t *log,
     unsigned  i;
     unsigned  count = 0;
 
-    ngx_upstream_rr_peers_wlock<PeersT> lock(primary);
+    ngx_upstream_rr_peers_wlock<PeersT> lock(primary, op->no_lock);
 
     for (i = 0; i < u->naddrs; ++i) {
         if (ngx_dynamic_upstream_op_add_peer<PeersT, PeerT>(log, op, shpool,
@@ -750,7 +757,7 @@ again:
                                                        servers,
                                                        guard.pool,
                                                        &hash)
-        == NGX_ERROR)
+            == NGX_ERROR)
     {
         op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
         op->err = "no memory";
@@ -996,7 +1003,7 @@ again:
     for (peers = primary; peers && i < 2; peers = peers->next, i++) {
         prev = NULL;
         for (peer = peers->peer; peer; peer = peer->next) {
-            if (equals<PeerT>(peer, &op->server)) {
+            if (equals<PeerT>(peer, &op->server, &op->name)) {
                 if (peers == primary && peers->number == 1) {
                     op->status = NGX_HTTP_BAD_REQUEST;
                     op->err = "single peer";
@@ -1110,11 +1117,11 @@ ngx_dynamic_upstream_op_update(ngx_log_t *log,
     PeersT    *peers;
     unsigned   count = 0;
 
-    ngx_upstream_rr_peers_wlock<PeersT> lock(primary);
+    ngx_upstream_rr_peers_wlock<PeersT> lock(primary, op->no_lock);
 
     for (peers = primary; peers; peers = peers->next) {
         for (peer = peers->peer; peer; peer = peer->next) {
-            if (equals<PeerT>(peer, &op->server)) {
+            if (equals<PeerT>(peer, &op->server, &op->name)) {
                 ngx_dynamic_upstream_op_update_peer<PeersT, PeerT>(log, op,
                                                                    peers, peer);
                 count++;

@@ -67,13 +67,16 @@ public:
     ngx_inline void
     release()
     {
-        no_lock = 1;
+        if (!no_lock) {
+            ngx_rwlock_unlock(&peers->rwlock);
+            no_lock = 1;
+        }
     }
 };
 
 
 template <class PeersT> struct ngx_upstream_rr_peers_rlock :
-  protected ngx_upstream_rr_peers_lock<PeersT> {
+  public ngx_upstream_rr_peers_lock<PeersT> {
     ngx_upstream_rr_peers_rlock(PeersT *p, int no_lock = 0) :
         ngx_upstream_rr_peers_lock<PeersT>(p, no_lock)
     {
@@ -83,7 +86,7 @@ template <class PeersT> struct ngx_upstream_rr_peers_rlock :
 
 
 template <class PeersT> struct ngx_upstream_rr_peers_wlock :
-  protected ngx_upstream_rr_peers_lock<PeersT> {
+  public ngx_upstream_rr_peers_lock<PeersT> {
     ngx_upstream_rr_peers_wlock(PeersT *p, int no_lock = 0) :
         ngx_upstream_rr_peers_lock<PeersT>(p, no_lock)
     {
@@ -113,6 +116,7 @@ public:
     ngx_inline void
     release()
     {
+        ngx_rwlock_unlock(&peer->lock);
         peer = NULL;
     }
 };
