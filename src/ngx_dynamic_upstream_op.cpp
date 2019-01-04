@@ -396,7 +396,10 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
 
     for (peers = primary; peers && j < 2; peers = peers->next, j++) {
         for (peer = peers->peer; peer; peer = peer->next) {
-            if (equals<PeerT>(peer, &op->server, &u->addrs[i].name)) {
+            if (equals<PeerT>(peer, &op->server, &u->addrs[i].name)
+                || (is_reserved_addr(&u->addrs[i].name)
+                    && ngx_memn2cmp(peer->server.data, op->server.data,
+                                    peer->server.len, op->server.len) == 0)) {
                 op->status = NGX_HTTP_NOT_MODIFIED;
                 op->err = "exists";
                 return NGX_OK;
@@ -599,6 +602,9 @@ ngx_dynamic_upstream_op_add(ngx_log_t *log,
     if (ngx_dynamic_upstream_op_add_impl<PeersT, PeerT>(log, op,
         shpool, primary, &u) == NGX_ERROR)
         return NGX_ERROR;
+
+    if (op->status == NGX_HTTP_NOT_MODIFIED)
+        return NGX_OK;
 
     if (rc == NGX_AGAIN) {
         op->err = "DNS resolving in progress";
