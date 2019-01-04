@@ -256,6 +256,9 @@ ngx_dynamic_upstream_op_impl(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
 {
     ngx_int_t rc = NGX_OK;
 
+    op->status = NGX_HTTP_OK;
+    op->err = "unexpected";
+
     switch (op->op) {
     case NGX_DYNAMIC_UPSTEAM_OP_ADD:
         rc = op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM
@@ -400,6 +403,11 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
                 || (is_reserved_addr(&u->addrs[i].name)
                     && ngx_memn2cmp(peer->server.data, op->server.data,
                                     peer->server.len, op->server.len) == 0)) {
+                if ((op->backup && j == 0) || (!op->backup && j == 1)) {
+                    op->status = NGX_HTTP_PRECONDITION_FAILED;
+                    op->err = "can't change server type (primary<->backup)";
+                    return NGX_ERROR;
+                }
                 op->status = NGX_HTTP_NOT_MODIFIED;
                 op->err = "exists";
                 return NGX_OK;
