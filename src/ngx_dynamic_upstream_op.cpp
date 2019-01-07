@@ -329,21 +329,22 @@ ngx_dynamic_upstream_parse_url(ngx_url_t *u,
 }
 
 
-template <class PeerT> static ngx_flag_t
-equals(PeerT *peer, ngx_str_t *server, ngx_str_t *name)
+static ngx_flag_t
+str_eq(ngx_str_t s1, ngx_str_t s2)
 {
-    if (server && name && server->data && name->data)
-        return ngx_memn2cmp(server->data, peer->server.data,
-                            server->len, peer->server.len) == 0
-            && ngx_memn2cmp(name->data, peer->name.data,
-                            name->len, peer->name.len) == 0;
+    return ngx_memn2cmp(s1.data, s2.data, s1.len, s2.len) == 0;
+}
 
-    assert(server != NULL);
 
-    return ngx_memn2cmp(server->data, peer->server.data,
-                        server->len, peer->server.len) == 0
-        || ngx_memn2cmp(server->data, peer->name.data,
-                        server->len, peer->name.len) == 0;
+template <class PeerT> static ngx_flag_t
+equals(PeerT *peer, ngx_str_t server, ngx_str_t name)
+{
+    if (server.data && name.data)
+        return str_eq(server, peer->server) && str_eq(name, peer->name);
+
+    assert(server.data != NULL);
+
+    return str_eq(server, peer->server) || str_eq(server, peer->name);
 }
 
 
@@ -366,10 +367,9 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
 
     for (peers = primary; peers && j < 2; peers = peers->next, j++) {
         for (peer = peers->peer; peer; peer = peer->next) {
-            if (equals<PeerT>(peer, &op->server, &u->addrs[i].name)
+            if (equals<PeerT>(peer, op->server, u->addrs[i].name)
                 || (is_reserved_addr(&u->addrs[i].name)
-                    && ngx_memn2cmp(peer->server.data, op->server.data,
-                                    peer->server.len, op->server.len) == 0)) {
+                    && str_eq(peer->server, op->server))) {
                 if ((op->backup && j == 0) || (!op->backup && j == 1)) {
                     op->status = NGX_HTTP_PRECONDITION_FAILED;
                     op->err = "can't change server type (primary<->backup)";
@@ -608,14 +608,13 @@ typedef struct ngx_server_s ngx_server_t;
 
 static ngx_uint_t
 ngx_dynamic_upstream_op_server_exist(ngx_array_t *servers,
-    ngx_str_t *name)
+    ngx_str_t name)
 {
     ngx_server_t  *server = (ngx_server_t *) servers->elts;
     unsigned       j;
 
     for (j = 0; j < servers->nelts; ++j)
-        if (ngx_memn2cmp(server[j].name.data, name->data,
-                         server[j].name.len, name->len) == 0)
+        if (str_eq(server[j].name, name))
             return 1;
 
     return 0;
@@ -624,16 +623,15 @@ ngx_dynamic_upstream_op_server_exist(ngx_array_t *servers,
 
 static ngx_uint_t
 ngx_dynamic_upstream_op_peer_exist(ngx_array_t *servers,
-    ngx_str_t *name)
+    ngx_str_t name)
 {
     ngx_server_t  *server = (ngx_server_t *) servers->elts;
     unsigned       i, j;
 
     for (j = 0; j < servers->nelts; ++j) {
         for (i = 0; i < server[j].u.naddrs; ++i) {
-            if (ngx_memn2cmp(server[j].u.addrs[i].name.data, name->data,
-                             server[j].u.addrs[i].name.len, name->len) == 0)
-                    return 1;
+            if (str_eq(server[j].u.addrs[i].name, name))
+                return 1;
         }
     }
 
@@ -656,7 +654,7 @@ ngx_dynamic_upstream_op_servers(PeersT *primary,
 
     for (peers = primary; peers && j < 2; peers = peers->next, j++) {
         for (peer = peers->peer; peer; peer = peer->next) {
-            if (!ngx_dynamic_upstream_op_server_exist(servers, &peer->server)) {
+            if (!ngx_dynamic_upstream_op_server_exist(servers, peer->server)) {
                 server = (ngx_server_t *) ngx_array_push(servers);
                 if (server == NULL)
                     return NGX_ERROR;
@@ -789,8 +787,7 @@ again:
 
         for (i = 0; i < server[j].u.naddrs; ++i) {
 
-            if (ngx_memn2cmp(op->server.data, server[j].u.addrs[i].name.data,
-                    op->server.len, server[j].u.addrs[i].name.len) == 0)
+            if (str_eq(op->server, server[j].u.addrs[i].name))
                 break;
 
             if (ngx_dynamic_upstream_op_add_peer<PeersT, PeerT>
@@ -808,7 +805,7 @@ again:
         for (peer = peers->peer; peer; peer = peer->next) {
             if ((peer->name.data[0] == '[' &&
                 !(op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6)) ||
-                !ngx_dynamic_upstream_op_peer_exist(servers, &peer->name))
+                !ngx_dynamic_upstream_op_peer_exist(servers, peer->name))
             {
                 op->server = peer->name;
                 if (ngx_dynamic_upstream_op_del<PeersT, PeerT>
@@ -984,7 +981,7 @@ again:
     for (peers = primary; peers && i < 2; peers = peers->next, i++) {
         prev = NULL;
         for (peer = peers->peer; peer; peer = peer->next) {
-            if (equals<PeerT>(peer, &op->server, &op->name)) {
+            if (equals<PeerT>(peer, op->server, op->name)) {
                 if (peers == primary && peers->number == 1) {
                     op->status = NGX_HTTP_BAD_REQUEST;
                     op->err = "single peer";
@@ -1102,7 +1099,7 @@ ngx_dynamic_upstream_op_update(ngx_log_t *log,
 
     for (peers = primary; peers; peers = peers->next) {
         for (peer = peers->peer; peer; peer = peer->next) {
-            if (equals<PeerT>(peer, &op->server, &op->name)) {
+            if (equals<PeerT>(peer, op->server, op->name)) {
                 ngx_dynamic_upstream_op_update_peer<PeersT, PeerT>(log, op,
                                                                    peers, peer);
                 count++;
