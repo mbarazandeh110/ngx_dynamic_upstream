@@ -101,7 +101,7 @@ server 127.0.0.1:6003 addr=127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=5 ma
     }
 --- request
     GET /dynamic?upstream=backends&server=127.0.0.1:6003&weight=abc
---- response_body_like: weight is not number
+--- response_body_like: weight: not a number
 --- error_code: 400
 
 
@@ -119,7 +119,7 @@ server 127.0.0.1:6003 addr=127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=5 ma
     }
 --- request
     GET /dynamic?upstream=backends&server=127.0.0.1:6003&max_fails=abc
---- response_body_like: max_fails is not number
+--- response_body_like: max_fails: not a number
 --- error_code: 400
 
 
@@ -137,7 +137,7 @@ server 127.0.0.1:6003 addr=127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=5 ma
     }
 --- request
     GET /dynamic?upstream=backends&server=127.0.0.1:6003&fail_timeout=abc
---- response_body_like: fail_timeout is not number
+--- response_body_like: fail_timeout: not a number
 --- error_code: 400
 
 === TEST 8: update max_conns parameter
