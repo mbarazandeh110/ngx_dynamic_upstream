@@ -27,6 +27,16 @@ Production ready.
 |Default|-|
 |Context|location|
 
+## dynamic_state_file
+
+|Syntax |dynamic_state_file file|
+|-------|----------------|
+|Default|-|
+|Context|upstream|
+
+Persistant state of upstream.  
+Example: dynamic_state_file backend.peers;
+
 ## dns_update
 
 |Syntax |dns_update 60s|

@@ -128,7 +128,7 @@ server 127.0.0.1:6004 addr=127.0.0.1:6004 backup;
 --- http_config
     upstream backends {
         zone zone_for_backends 128k;
-        dns_update 0s;
+        dns_update 1s;
         server 127.0.0.1:6001;
         server 127.0.0.1:6002;
         server 127.0.0.1:6003;
@@ -141,14 +141,14 @@ server 127.0.0.1:6004 addr=127.0.0.1:6004 backup;
        content_by_lua_block {
           local resp = assert(ngx.location.capture("/dynamic?upstream=backends&server=localhost:6004&add="))
           ngx.say(resp.body)
-          ngx.sleep(1.2)
+          ngx.sleep(2)
           resp = assert(ngx.location.capture("/dynamic?upstream=backends"))
           ngx.print(resp.body)
           resp = assert(ngx.location.capture("/dynamic?upstream=backends&remove=&server=localhost:6004"))
           ngx.print(resp.body)
           resp = assert(ngx.location.capture("/dynamic?upstream=backends&server=localhost:6004&add=&backup="))
           ngx.say(resp.body)
-          ngx.sleep(1.2)
+          ngx.sleep(2)
           resp = assert(ngx.location.capture("/dynamic?upstream=backends"))
           ngx.print(resp.body)
           resp = assert(ngx.location.capture("/dynamic?upstream=backends&remove=&server=localhost:6004"))
@@ -174,3 +174,21 @@ server localhost:6004 addr=127.0.0.1:6004 backup;
 server 127.0.0.1:6001 addr=127.0.0.1:6001;
 server 127.0.0.1:6002 addr=127.0.0.1:6002;
 server 127.0.0.1:6003 addr=127.0.0.1:6003;
+--- timeout: 5
+
+
+=== TEST 8: add single
+--- http_config
+    upstream backends {
+        zone zone_for_backends 128k;
+        server 0.0.0.0:1;
+    }
+--- config
+    location /dynamic {
+        dynamic_upstream;
+    }
+--- request
+    GET /dynamic?upstream=backends&server=127.0.0.1:6001&add=
+--- response_body
+server 127.0.0.1:6001 addr=127.0.0.1:6001;
+

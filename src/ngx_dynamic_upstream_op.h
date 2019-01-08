@@ -20,17 +20,6 @@ extern "C" {
 #endif
 
 
-typedef union {
-    ngx_http_upstream_rr_peer_t *http;
-    ngx_stream_upstream_rr_peer_t *stream;
-} ngx_upstream_rr_peer_t;
-
-typedef union {
-    ngx_http_upstream_rr_peers_t *http;
-    ngx_stream_upstream_rr_peers_t *stream;
-} ngx_upstream_rr_peers_t;
-
-
 template <class PeersT>
 class ngx_upstream_rr_peers_lock {
     PeersT *peers;
@@ -122,6 +111,50 @@ public:
 };
 
 
+template <class S>
+struct TypeSelect {};
+
+
+template <>
+struct TypeSelect<ngx_http_upstream_srv_conf_t> {
+    typedef ngx_http_upstream_main_conf_t  main_type;
+    typedef ngx_http_upstream_srv_conf_t   srv_type;
+    typedef ngx_http_upstream_rr_peers_t   peers_type;
+    typedef ngx_http_upstream_rr_peer_t    peer_type;
+
+    static main_type * main_conf()
+    {
+        return (main_type *) ngx_http_cycle_get_module_main_conf(ngx_cycle,
+            ngx_http_upstream_module);
+    }
+
+    static void make_op(ngx_dynamic_upstream_op_t *op)
+    {
+        op->op_param &= ~NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM;
+    }
+};
+
+
+template <>
+struct TypeSelect<ngx_stream_upstream_srv_conf_t> {
+    typedef ngx_stream_upstream_main_conf_t  main_type;
+    typedef ngx_stream_upstream_srv_conf_t   srv_type;
+    typedef ngx_stream_upstream_rr_peers_t   peers_type;
+    typedef ngx_stream_upstream_rr_peer_t    peer_type;
+
+    static main_type * main_conf()
+    {
+        return (main_type *) ngx_stream_cycle_get_module_main_conf(ngx_cycle,
+            ngx_stream_upstream_module);
+    }
+
+    static void make_op(ngx_dynamic_upstream_op_t *op)
+    {
+        op->op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM;
+    }
+};
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -130,7 +163,7 @@ ngx_int_t ngx_dynamic_upstream_build_op(ngx_http_request_t *r,
     ngx_dynamic_upstream_op_t *op);
 ngx_int_t ngx_dynamic_upstream_op_impl(ngx_log_t *log,
     ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool,
-	ngx_upstream_rr_peers_t *primary);
+    void *peers);
 
 #ifdef __cplusplus
 }

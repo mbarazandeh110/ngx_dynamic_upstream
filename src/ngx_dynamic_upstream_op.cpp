@@ -19,27 +19,34 @@ extern "C" {
 #include "ngx_dynamic_upstream_op.h"
 
 
-template <class PeersT, class PeerT> static ngx_int_t
-ngx_dynamic_upstream_op_add(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
-    ngx_slab_pool_t *shpool, PeersT *primary);
+// forward declarations
+
+template <class S> static ngx_int_t
+ngx_dynamic_upstream_op_add(typename TypeSelect<S>::peers_type *primary,
+    ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool, ngx_log_t *log);
 
 
-template <class PeersT, class PeerT> static ngx_int_t
-ngx_dynamic_upstream_op_sync(ngx_log_t *log,
-    ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool,
-    PeersT *primary);
+template <class S> static ngx_int_t
+ngx_dynamic_upstream_op_sync(typename TypeSelect<S>::peers_type *primary,
+    ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool, ngx_log_t *log);
 
 
-template <class PeersT, class PeerT> static ngx_int_t
-ngx_dynamic_upstream_op_del(ngx_log_t *log,
-    ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool,
-    PeersT *primary);
+template <class S> static ngx_int_t
+ngx_dynamic_upstream_op_del(typename TypeSelect<S>::peers_type *primary,
+    ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool, ngx_log_t *log);
 
 
-template <class PeersT, class PeerT> static ngx_int_t
-ngx_dynamic_upstream_op_update(ngx_log_t *log,
-    ngx_dynamic_upstream_op_t *op, PeersT *primary);
+template <class S> static ngx_int_t
+ngx_dynamic_upstream_op_update(typename TypeSelect<S>::peers_type *primary,
+    ngx_dynamic_upstream_op_t *op, ngx_log_t *log);
 
+
+template <class S> static ngx_int_t
+ngx_dynamic_upstream_op_hash(typename TypeSelect<S>::peers_type *primary,
+    ngx_dynamic_upstream_op_t *op);
+
+
+// healper
 
 template <class T> T*
 ngx_shm_calloc(ngx_slab_pool_t *shpool, size_t size = 0)
@@ -48,19 +55,7 @@ ngx_shm_calloc(ngx_slab_pool_t *shpool, size_t size = 0)
 }
 
 
-template <class T> T*
-ngx_pool_pcalloc(ngx_pool_t *pool, size_t size)
-{
-    return (T*) ngx_pcalloc(pool, size);
-}
-
-
-template <class T> T*
-ngx_pool_pnalloc(ngx_pool_t *pool, size_t size)
-{
-    return (T*) ngx_pnalloc(pool, size);
-}
-
+// parse uri parameters
 
 static ngx_str_t
 get(ngx_http_request_t *r, const char *arg,
@@ -217,9 +212,20 @@ ngx_dynamic_upstream_build_op(ngx_http_request_t *r,
 }
 
 
+// entrypoint
+
+
+#define CALL(fun, peers, ...)                                          \
+   (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM                 \
+        ? fun<ngx_stream_upstream_srv_conf_t>(                         \
+            (ngx_stream_upstream_rr_peers_t *) (peers), __VA_ARGS__)   \
+        : fun<ngx_http_upstream_srv_conf_t>(                           \
+            (ngx_http_upstream_rr_peers_t *) (peers), __VA_ARGS__))
+
+
 ngx_int_t
 ngx_dynamic_upstream_op_impl(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
-    ngx_slab_pool_t *shpool, ngx_upstream_rr_peers_t *peers)
+    ngx_slab_pool_t *shpool, void *peers)
 {
     ngx_int_t rc = NGX_OK;
 
@@ -227,50 +233,32 @@ ngx_dynamic_upstream_op_impl(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
     op->err = "unexpected";
 
     switch (op->op) {
-    case NGX_DYNAMIC_UPSTEAM_OP_ADD:
-        rc = op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM
-           ? ngx_dynamic_upstream_op_add<ngx_stream_upstream_rr_peers_t,
-                                         ngx_stream_upstream_rr_peer_t>
-                (log, op, shpool, peers->stream)
-           : ngx_dynamic_upstream_op_add<ngx_http_upstream_rr_peers_t,
-                                         ngx_http_upstream_rr_peer_t>
-                (log, op, shpool, peers->http);
-        break;
 
-    case NGX_DYNAMIC_UPSTEAM_OP_REMOVE:
-        rc = op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM
-            ? ngx_dynamic_upstream_op_del<ngx_stream_upstream_rr_peers_t,
-                                          ngx_stream_upstream_rr_peer_t>
-                (log, op, shpool, peers->stream)
-            : ngx_dynamic_upstream_op_del<ngx_http_upstream_rr_peers_t,
-                                          ngx_http_upstream_rr_peer_t>
-                (log, op, shpool, peers->http);
-        break;
+        case NGX_DYNAMIC_UPSTEAM_OP_ADD:
+            rc = CALL(ngx_dynamic_upstream_op_add, peers, op, shpool, log);
+            break;
 
-    case NGX_DYNAMIC_UPSTEAM_OP_SYNC:
-        rc = op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM
-            ? ngx_dynamic_upstream_op_sync<ngx_stream_upstream_rr_peers_t,
-                                           ngx_stream_upstream_rr_peer_t>
-                (log, op, shpool, peers->stream)
-            : ngx_dynamic_upstream_op_sync<ngx_http_upstream_rr_peers_t,
-                                           ngx_http_upstream_rr_peer_t>
-                (log, op, shpool, peers->http);
-        break;
+        case NGX_DYNAMIC_UPSTEAM_OP_REMOVE:
+            rc = CALL(ngx_dynamic_upstream_op_del, peers, op, shpool, log);
+            break;
 
-    case NGX_DYNAMIC_UPSTEAM_OP_PARAM:
-        rc = op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM
-            ? ngx_dynamic_upstream_op_update<ngx_stream_upstream_rr_peers_t,
-                                         ngx_stream_upstream_rr_peer_t>
-                (log, op, peers->stream)
-            : ngx_dynamic_upstream_op_update<ngx_http_upstream_rr_peers_t,
-                                             ngx_http_upstream_rr_peer_t>
-                (log, op, peers->http);
-        break;
+        case NGX_DYNAMIC_UPSTEAM_OP_SYNC:
+            rc = CALL(ngx_dynamic_upstream_op_sync, peers, op, shpool, log);
+            break;
 
-    case NGX_DYNAMIC_UPSTEAM_OP_LIST:
-    default:
-        rc = NGX_OK;
-        break;
+        case NGX_DYNAMIC_UPSTEAM_OP_PARAM:
+            rc = CALL(ngx_dynamic_upstream_op_update, peers, op, log);
+            break;
+
+        case NGX_DYNAMIC_UPSTEAM_OP_HASH:
+            rc = CALL(ngx_dynamic_upstream_op_hash, peers, op);
+            break;
+
+        case NGX_DYNAMIC_UPSTEAM_OP_LIST:
+        default:
+            rc = NGX_OK;
+            break;
+
     }
 
     return rc;
@@ -289,8 +277,7 @@ is_reserved_addr(ngx_str_t *addr)
 }
 
 static ngx_int_t
-ngx_dynamic_upstream_parse_url(ngx_url_t *u,
-    ngx_pool_t *pool,
+ngx_dynamic_upstream_parse_url(ngx_url_t *u, ngx_pool_t *pool,
     ngx_dynamic_upstream_op_t *op)
 {
     ngx_memzero(u, sizeof(ngx_url_t));
@@ -301,26 +288,37 @@ ngx_dynamic_upstream_parse_url(ngx_url_t *u,
         ? 0 : 1;
 
     if (ngx_parse_url(pool, u) != NGX_OK) {
+
+        op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
         if (u->err)
             op->err = u->err;
-        op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
+
         return NGX_ERROR;
     }
 
     if (u->naddrs == 0) {
+
         if (u->no_resolve) {
+
             u->url = noaddr;
+
             if (ngx_parse_url(pool, u) != NGX_OK) {
+
+                op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
                 if (u->err)
                     op->err = u->err;
-                op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
+
                 return NGX_ERROR;
             }
+
             u->url = op->server;
             return NGX_AGAIN;
+
         } else {
+
             op->err = "failed to resolve";
             op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
+
             return NGX_ERROR;
         }
     }
@@ -348,17 +346,19 @@ equals(PeerT *peer, ngx_str_t server, ngx_str_t name)
 }
 
 
-template <class PeersT, class PeerT> static ngx_int_t
+template <class S> static ngx_int_t
 ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
     ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool,
-    PeersT *primary, ngx_url_t *u, int i)
+    typename TypeSelect<S>::peers_type *primary, ngx_url_t *u, int i)
 {
-    PeerT       *peer, *last = NULL, *npeer;
-    PeersT      *peers, *backup = primary->next;
+    typename TypeSelect<S>::peers_type  *peers, *backup = primary->next;
+    typename TypeSelect<S>::peer_type   *peer, *last = NULL, *npeer;
+
     ngx_uint_t   j = 0;
 
     if (u->addrs[i].name.data[0] == '[' &&
         !(op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6)) {
+
         op->status = NGX_HTTP_NOT_MODIFIED;
         return NGX_OK;
     }
@@ -366,17 +366,26 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
     op->status = NGX_HTTP_OK;
 
     for (peers = primary; peers && j < 2; peers = peers->next, j++) {
+
         for (peer = peers->peer; peer; peer = peer->next) {
-            if (equals<PeerT>(peer, op->server, u->addrs[i].name)
+
+            if (equals<typename TypeSelect<S>::peer_type>(peer,
+                                                          op->server,
+                                                          u->addrs[i].name)
                 || (is_reserved_addr(&u->addrs[i].name)
                     && str_eq(peer->server, op->server))) {
+
                 if ((op->backup && j == 0) || (!op->backup && j == 1)) {
+
                     op->status = NGX_HTTP_PRECONDITION_FAILED;
                     op->err = "can't change server type (primary<->backup)";
+
                     return NGX_ERROR;
                 }
+
                 op->status = NGX_HTTP_NOT_MODIFIED;
                 op->err = "exists";
+
                 return NGX_OK;
             }
             if ( (op->backup == 0 && peers == primary) ||
@@ -386,23 +395,30 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
     }
 
     if (op->backup) {
+
         if (backup == NULL) {
+
             assert(last == NULL);
-            backup = ngx_shm_calloc<PeersT>(shpool);
+
+            backup = ngx_shm_calloc<typename TypeSelect<S>::peers_type>(shpool);
             if (backup == NULL) {
+
                 op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
                 op->err = "no shared memory";
+
                 return NGX_ERROR;
             }
+
             backup->shpool = primary->shpool;
             backup->name = primary->name;
         }
 
         peers = backup;
+
     } else
         peers = primary;
 
-    npeer = ngx_shm_calloc<PeerT>(shpool);
+    npeer = ngx_shm_calloc<typename TypeSelect<S>::peer_type>(shpool);
     if (npeer == NULL)
         goto fail;
 
@@ -429,13 +445,15 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
     ngx_memcpy(npeer->sockaddr, u->addrs[i].sockaddr, npeer->socklen);
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_WEIGHT) {
+
         npeer->weight = op->weight;
         npeer->effective_weight = op->weight;
-        npeer->current_weight = 0;
+
     } else {
+
         npeer->weight = 1;
         npeer->effective_weight = 1;
-        npeer->current_weight = 0;
+
     }
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_MAX_FAILS)
@@ -470,12 +488,16 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
         primary->next = backup;
 
     if (!is_reserved_addr(&u->addrs[i].name)) {
+
         ngx_log_error(NGX_LOG_NOTICE, log, 0, "%V: added server %V peer %V",
                       &op->upstream, &u->url, &u->addrs[i].name);
+
     } else {
+
         ngx_log_error(NGX_LOG_NOTICE, log, 0,
                       "%V: added server %V peer -.-.-.-",
                       &op->upstream, &u->url);
+
     }
 
     return NGX_OK;
@@ -483,12 +505,16 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
 fail:
 
     if (npeer != NULL) {
+
         if (npeer->server.data != NULL)
             ngx_slab_free(shpool, npeer->server.data);
+
         if (npeer->name.data != NULL)
             ngx_slab_free(shpool, npeer->name.data);
+
         if (npeer->sockaddr != NULL)
             ngx_slab_free(shpool, npeer->sockaddr);
+
         ngx_slab_free(shpool, npeer);
     }
 
@@ -502,24 +528,43 @@ fail:
 }
 
 
-template <class PeersT, class PeerT> static ngx_int_t
+template <class S> static ngx_int_t
 ngx_dynamic_upstream_op_add_impl(ngx_log_t *log,
     ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool,
-    PeersT *primary, ngx_url_t *u)
+    typename TypeSelect<S>::peers_type *primary, ngx_url_t *u)
 {
-    unsigned  i;
-    unsigned  count = 0;
+    unsigned                   i;
+    unsigned                   count = 0;
+    ngx_flag_t                 empty;
+    ngx_dynamic_upstream_op_t  del_op;
 
-    ngx_upstream_rr_peers_wlock<PeersT> lock(primary, op->no_lock);
+    ngx_upstream_rr_peers_wlock<typename TypeSelect<S>::peers_type>
+        wl(primary, op->no_lock);
+
+    empty = primary->single && is_reserved_addr(&primary->peer->server);
 
     for (i = 0; i < u->naddrs; ++i) {
-        if (ngx_dynamic_upstream_op_add_peer<PeersT, PeerT>(log, op, shpool,
-                primary, u, i) == NGX_ERROR) {
+
+        if (ngx_dynamic_upstream_op_add_peer<S>(log, op, shpool, primary, u, i)
+                == NGX_ERROR) {
             return NGX_ERROR;
         }
 
         if (op->status == NGX_HTTP_OK)
            count++;
+    }
+
+    if (empty && !primary->single) {
+
+        ngx_memzero(&del_op, sizeof(ngx_dynamic_upstream_op_t));
+
+        del_op.no_lock = 1;
+        del_op.op = NGX_DYNAMIC_UPSTEAM_OP_REMOVE;
+        del_op.server = noaddr;
+        del_op.name = noaddr;
+
+        ngx_dynamic_upstream_op_del<S>
+            (primary, &del_op, shpool, log);
     }
 
     op->status = count != 0 ? NGX_HTTP_OK : NGX_HTTP_NOT_MODIFIED;
@@ -543,10 +588,9 @@ struct ngx_pool_auto {
 };
 
 
-template <class PeersT, class PeerT> static ngx_int_t
-ngx_dynamic_upstream_op_add(ngx_log_t *log,
-    ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool,
-    PeersT *primary)
+template <class S> static ngx_int_t
+ngx_dynamic_upstream_op_add(typename TypeSelect<S>::peers_type *primary,
+    ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool, ngx_log_t *log)
 {
     ngx_url_t  u;
     ngx_int_t  rc;
@@ -554,8 +598,10 @@ ngx_dynamic_upstream_op_add(ngx_log_t *log,
     ngx_pool_auto guard(log);
 
     if (guard.pool == NULL) {
+
         op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
         op->err = "no memory";
+
         return NGX_ERROR;
     }
 
@@ -563,25 +609,31 @@ ngx_dynamic_upstream_op_add(ngx_log_t *log,
         return NGX_ERROR;
 
     if (rc == NGX_AGAIN) {
+
         if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE) {
+
             op->down = 1;
             op->op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN;
+
         } else {
+
+            op->status = NGX_HTTP_BAD_REQUEST;
             op->err = "domain names are supported only for upstreams "
                       "with 'dns_update' directive";
-            op->status = NGX_HTTP_BAD_REQUEST;
+
             return NGX_ERROR;
         }
     }
 
-    if (ngx_dynamic_upstream_op_add_impl<PeersT, PeerT>(log, op,
-        shpool, primary, &u) == NGX_ERROR)
+    if (ngx_dynamic_upstream_op_add_impl<S>(log, op, shpool, primary, &u)
+            == NGX_ERROR)
         return NGX_ERROR;
 
     if (op->status == NGX_HTTP_NOT_MODIFIED)
         return NGX_OK;
 
     if (rc == NGX_AGAIN) {
+
         op->err = "DNS resolving in progress";
         op->status = NGX_HTTP_PROCESSING;
     }
@@ -628,38 +680,42 @@ ngx_dynamic_upstream_op_peer_exist(ngx_array_t *servers,
     ngx_server_t  *server = (ngx_server_t *) servers->elts;
     unsigned       i, j;
 
-    for (j = 0; j < servers->nelts; ++j) {
+    for (j = 0; j < servers->nelts; ++j)
         for (i = 0; i < server[j].u.naddrs; ++i) {
+
             if (str_eq(server[j].u.addrs[i].name, name))
                 return 1;
         }
-    }
 
     return 0;
 }
 
 
-template <class PeersT, class PeerT> static ngx_int_t
-ngx_dynamic_upstream_op_servers(PeersT *primary,
+template <class S> static ngx_int_t
+ngx_dynamic_upstream_op_servers(typename TypeSelect<S>::peers_type *primary,
     ngx_array_t *servers, ngx_pool_t *pool, ngx_uint_t *hash)
 {
-    PeerT         *peer;
-    PeersT        *peers;
+    typename TypeSelect<S>::peers_type  *peers;
+    typename TypeSelect<S>::peer_type   *peer;
+
     ngx_server_t  *server;
     ngx_uint_t     j = 0;
 
     *hash = 0;
 
-    ngx_upstream_rr_peers_rlock<PeersT> lock(primary);
+    ngx_upstream_rr_peers_rlock<typename TypeSelect<S>::peers_type> rl(primary);
 
     for (peers = primary; peers && j < 2; peers = peers->next, j++) {
+
         for (peer = peers->peer; peer; peer = peer->next) {
+
             if (!ngx_dynamic_upstream_op_server_exist(servers, peer->server)) {
+
                 server = (ngx_server_t *) ngx_array_push(servers);
                 if (server == NULL)
                     return NGX_ERROR;
 
-                server->name.data = ngx_pool_pcalloc<u_char>(pool,
+                server->name.data = (u_char *) ngx_pcalloc(pool,
                     peer->server.len + 1);
                 if (server->name.data == NULL)
                     return NGX_ERROR;
@@ -685,67 +741,89 @@ ngx_dynamic_upstream_op_servers(PeersT *primary,
 }
 
 
-template <class PeersT, class PeerT> static ngx_int_t
-ngx_dynamic_upstream_op_check_hash(PeersT *primary, ngx_uint_t old_hash)
+template <class S> static ngx_int_t
+ngx_dynamic_upstream_op_check_hash(typename TypeSelect<S>::peers_type *primary,
+    ngx_uint_t *hash)
 {
-    PeerT        *peer;
-    PeersT       *peers;
-    ngx_uint_t    hash = 0;
-    ngx_uint_t    i = 0;
+    typename TypeSelect<S>::peers_type  *peers;
+    typename TypeSelect<S>::peer_type   *peer;
+
+    ngx_uint_t  i = 0;
+    ngx_uint_t  old_hash = *hash;
+
+    *hash = 0;
 
     for (peers = primary; peers && i < 2; peers = peers->next, i++)
         for (peer = peers->peer; peer; peer = peer->next)
-            hash += ngx_crc32_short(peer->server.data,
-                                    peer->server.len);
+            *hash += ngx_crc32_short(peer->server.data,
+                                     peer->server.len);
 
-    return hash == old_hash ? NGX_OK : NGX_AGAIN;
+    return *hash == old_hash ? NGX_OK : NGX_DECLINED;
 }
 
 
-template <class PeersT, class PeerT> static ngx_int_t
-ngx_dynamic_upstream_op_sync(ngx_log_t *log,
-    ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool,
-    PeersT *primary)
+template <class S> static ngx_int_t
+ngx_dynamic_upstream_op_hash(typename TypeSelect<S>::peers_type *primary,
+    ngx_dynamic_upstream_op_t *op)
 {
+    ngx_upstream_rr_peers_rlock<typename TypeSelect<S>::peers_type> rl(primary);
+    return ngx_dynamic_upstream_op_check_hash<S>(primary,
+        &op->hash);
+}
+
+
+template <class S> static ngx_int_t
+ngx_dynamic_upstream_op_sync(typename TypeSelect<S>::peers_type *primary,
+    ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool, ngx_log_t *log)
+{
+    typename TypeSelect<S>::peers_type  *peers;
+    typename TypeSelect<S>::peer_type   *peer;
+
     unsigned       i, j;
     ngx_server_t  *server;
-    PeerT         *peer;
-    PeersT        *peers;
     unsigned       count = 0;
     ngx_array_t   *servers;
-    ngx_uint_t     hash;
+    ngx_uint_t     hash = op->hash;
+
+    if (ngx_dynamic_upstream_op_hash<S>(primary, op) == NGX_OK) {
+
+        op->status = NGX_HTTP_NOT_MODIFIED;
+
+        return NGX_OK;
+    }
+
+    op->hash = hash;
 
     ngx_pool_auto guard(log);
 
     if (guard.pool == NULL) {
+
         op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
         op->err = "no memory";
+
         return NGX_ERROR;
     }
 
     servers = ngx_array_create(guard.pool, 100, sizeof(ngx_server_t));
     if (servers == NULL) {
+
         op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
         op->err = "no memory";
+
         return NGX_ERROR;
     }
 
 again:
 
-    if (ngx_dynamic_upstream_op_servers<PeersT, PeerT>(primary,
-                                                       servers,
-                                                       guard.pool,
-                                                       &hash)
+    if (ngx_dynamic_upstream_op_servers<S>(primary,
+                                           servers,
+                                           guard.pool,
+                                           &hash)
             == NGX_ERROR)
     {
         op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
         op->err = "no memory";
         return NGX_ERROR;
-    }
-
-    if (op->hash == hash) {
-        op->status = NGX_HTTP_NOT_MODIFIED;
-        return NGX_OK;
     }
 
     server = (ngx_server_t *) servers->elts;
@@ -757,10 +835,10 @@ again:
             return NGX_ERROR;
     }
 
-    ngx_upstream_rr_peers_wlock<PeersT> lock(primary);
+    ngx_upstream_rr_peers_wlock<typename TypeSelect<S>::peers_type> wl(primary);
 
-    if (ngx_dynamic_upstream_op_check_hash<PeersT, PeerT>(primary, hash)
-            == NGX_AGAIN) {
+    if (ngx_dynamic_upstream_op_check_hash<S>(primary, &hash) == NGX_DECLINED) {
+
         servers->nelts = 0;
         goto again;
     }
@@ -790,7 +868,7 @@ again:
             if (str_eq(op->server, server[j].u.addrs[i].name))
                 break;
 
-            if (ngx_dynamic_upstream_op_add_peer<PeersT, PeerT>
+            if (ngx_dynamic_upstream_op_add_peer<S>
                     (log, op, shpool, primary, &server[j].u, i) == NGX_ERROR)
                 return NGX_ERROR;
 
@@ -802,14 +880,18 @@ again:
     i = 0;
 
     for (peers = primary; peers && i < 2; peers = peers->next, i++) {
+
         for (peer = peers->peer; peer; peer = peer->next) {
+
             if ((peer->name.data[0] == '[' &&
                 !(op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6)) ||
                 !ngx_dynamic_upstream_op_peer_exist(servers, peer->name))
             {
+
                 op->server = peer->name;
-                if (ngx_dynamic_upstream_op_del<PeersT, PeerT>
-                       (log, op, shpool, primary) == NGX_ERROR)
+
+                if (ngx_dynamic_upstream_op_del<S>(primary, op, shpool, log)
+                        == NGX_ERROR)
                     return NGX_ERROR;
 
                 count++;
@@ -828,9 +910,9 @@ typedef ngx_int_t (*cleanup_t) (ngx_slab_pool_t *shpool, void *peer);
 
 
 typedef struct {
-    ngx_slab_pool_t *shpool;
-    void            *peer;
-    cleanup_t        free;
+    ngx_slab_pool_t  *shpool;
+    void             *peer;
+    cleanup_t         free;
 } ngx_dynamic_cleanup_t;
 
 
@@ -852,12 +934,15 @@ ngx_dynamic_trash_init()
                              sizeof(ngx_dynamic_cleanup_t));
 
     if (trash) {
+
         ngx_memzero(&cleanup_ev, sizeof(ngx_event_t));
         ngx_memzero(&dumb_conn, sizeof(ngx_connection_t));
+
         dumb_conn.fd = -1;
         cleanup_ev.handler = ngx_dynamic_cleanup;
         cleanup_ev.data = &dumb_conn;
         cleanup_ev.log = ngx_cycle->log;
+
         ngx_add_timer(&cleanup_ev, 1000);
     }
 
@@ -876,6 +961,7 @@ ngx_dynamic_add_to_trash(ngx_slab_pool_t *shpool, void *peer, cleanup_t cb)
     p = (ngx_dynamic_cleanup_t *) ngx_array_push(trash);
 
     if (p != NULL) {
+
         p->shpool = shpool;
         p->peer = peer;
         p->free = cb;
@@ -912,17 +998,17 @@ template <class PeerT> struct FreeFunctor {
 
 private:
 
-  static ngx_int_t
-  do_free(ngx_slab_pool_t *shpool, PeerT *peer)
+  static ngx_int_t do_free(ngx_slab_pool_t *shpool, PeerT *peer)
   {
-      ngx_upstream_rr_peer_lock<PeerT> lock(peer);
+      ngx_upstream_rr_peer_lock<PeerT> wl(peer);
 
       if (peer->conns == 0) {
+
           ngx_slab_free(shpool, peer->server.data);
           ngx_slab_free(shpool, peer->name.data);
           ngx_slab_free(shpool, peer->sockaddr);
 
-          lock.release();
+          wl.release();
 
           ngx_slab_free(shpool, peer);
 
@@ -961,37 +1047,65 @@ ngx_dynamic_upstream_op_free_peer(ngx_slab_pool_t *shpool, PeerT *peer)
 }
 
 
-template <class PeersT, class PeerT> static ngx_int_t
-ngx_dynamic_upstream_op_del(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
-    ngx_slab_pool_t *shpool, PeersT *primary)
+template <class S> static ngx_int_t
+ngx_dynamic_upstream_op_del(typename TypeSelect<S>::peers_type *primary,
+    ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool, ngx_log_t *log)
 {
-    PeerT       *peer, *deleted, *prev;
-    PeersT      *peers, *backup = primary->next;
-    ngx_int_t    count = 0;
-    ngx_uint_t   i = 0;
+    typename TypeSelect<S>::peers_type  *peers, *backup = primary->next;
+    typename TypeSelect<S>::peer_type   *peer, *deleted, *prev;
+
+    ngx_int_t                  count = 0;
+    ngx_uint_t                 i = 0;
+    ngx_dynamic_upstream_op_t  add_op;
 
     op->status = NGX_HTTP_OK;
 
-    ngx_upstream_rr_peers_wlock<PeersT> lock(primary, op->no_lock);
+    ngx_upstream_rr_peers_wlock<typename TypeSelect<S>::peers_type> wl(primary,
+        op->no_lock);
 
 again:
 
     deleted = NULL;
 
     for (peers = primary; peers && i < 2; peers = peers->next, i++) {
+
         prev = NULL;
+
         for (peer = peers->peer; peer; peer = peer->next) {
-            if (equals<PeerT>(peer, op->server, op->name)) {
+
+            if (equals<typename TypeSelect<S>::peer_type>(peer, op->server,
+                    op->name)) {
+
                 if (peers == primary && peers->number == 1) {
-                    op->status = NGX_HTTP_BAD_REQUEST;
-                    op->err = "single peer";
-                    return NGX_ERROR;
+
+                    ngx_memzero(&add_op, sizeof(ngx_dynamic_upstream_op_t));
+
+                    add_op.no_lock = 1;
+                    add_op.op = NGX_DYNAMIC_UPSTEAM_OP_ADD;
+                    add_op.server = noaddr;
+                    add_op.name = noaddr;
+                    add_op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN;
+                    add_op.down = 1;
+
+                    if (ngx_dynamic_upstream_op_add<S>(primary, &add_op,
+                            shpool, log) != NGX_OK) {
+
+                        op->err = add_op.err;
+                        op->status = add_op.status;
+
+                        return NGX_ERROR;
+                    }
+
+                    goto again;
                 }
+
                 deleted = peer;
                 peer = peer->next;
                 count++;
+
                 goto del;
             }
+
             prev = peer;
         }
     }
@@ -1000,6 +1114,7 @@ del:
 
     /* not found */
     if (deleted == NULL) {
+
         if (count == 0)
             op->status = NGX_HTTP_NOT_MODIFIED;
         return NGX_OK;
@@ -1007,12 +1122,14 @@ del:
 
     /* found head */
     if (prev == NULL) {
+
         peers->peer = peer;
         goto ok;
     }
 
     /* found tail */
     if (peer == NULL) {
+
         prev->next = NULL;
         goto ok;
     }
@@ -1028,6 +1145,7 @@ del:
     peers->weighted = peers->total_weight != peers->number;
 
     if (peers->number == 0) {
+
         assert(peers == backup);
         primary->next = NULL;
         ngx_slab_free(shpool, backup);
@@ -1037,25 +1155,29 @@ del:
         ngx_log_error(NGX_LOG_NOTICE, log, 0, "%V: removed server %V peer %V",
                       &op->upstream, &deleted->server, &deleted->name);
 
-    ngx_dynamic_upstream_op_free_peer<PeerT>(shpool, deleted);
+    ngx_dynamic_upstream_op_free_peer<typename TypeSelect<S>::peer_type>(shpool,
+        deleted);
 
     goto again;
 }
 
 
-template <class PeersT, class PeerT> static void
-ngx_dynamic_upstream_op_update_peer(ngx_log_t *log,
-    ngx_dynamic_upstream_op_t *op, PeersT *peers, PeerT *peer)
+template <class S> static void
+ngx_dynamic_upstream_op_update_peer(typename TypeSelect<S>::peers_type *peers,
+    typename TypeSelect<S>::peer_type *peer,
+    ngx_dynamic_upstream_op_t *op, ngx_log_t *log)
 {
-    ngx_upstream_rr_peer_lock<PeerT> lock(peer);
+    ngx_upstream_rr_peer_lock<typename TypeSelect<S>::peer_type> wl(peer);
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_WEIGHT) {
+
         peers->total_weight -= peer->weight;
         peers->total_weight += op->weight;
         peers->weighted = peers->total_weight != peers->number;
         peer->weight = op->weight;
         peer->current_weight = op->weight;
         peer->effective_weight = op->weight;
+
     }
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_MAX_FAILS)
@@ -1070,46 +1192,58 @@ ngx_dynamic_upstream_op_update_peer(ngx_log_t *log,
         peer->fail_timeout = op->fail_timeout;
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_UP) {
+
         peer->down = 0;
         peer->checked = ngx_time();
         peer->fails = 0;
+
         ngx_log_error(NGX_LOG_NOTICE, log, 0, "%V: up peer %V",
                       &op->upstream, &peer->name);
     }
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN) {
+
         peer->down = 1;
         peer->checked = ngx_time();
         peer->fails = peer->max_fails;
+
         ngx_log_error(NGX_LOG_NOTICE, log, 0, "%V: down peer %V",
                       &op->upstream, &peer->name);
     }
 }
 
 
-template <class PeersT, class PeerT> static ngx_int_t
-ngx_dynamic_upstream_op_update(ngx_log_t *log,
-    ngx_dynamic_upstream_op_t *op, PeersT *primary)
+template <class S> static ngx_int_t
+ngx_dynamic_upstream_op_update(typename TypeSelect<S>::peers_type *primary,
+    ngx_dynamic_upstream_op_t *op, ngx_log_t *log)
 {
-    PeerT     *peer;
-    PeersT    *peers;
+    typename TypeSelect<S>::peers_type  *peers;
+    typename TypeSelect<S>::peer_type   *peer;
+
     unsigned   count = 0;
 
-    ngx_upstream_rr_peers_wlock<PeersT> lock(primary, op->no_lock);
+    ngx_upstream_rr_peers_wlock<typename TypeSelect<S>::peers_type> rl(primary,
+        op->no_lock);
 
     for (peers = primary; peers; peers = peers->next) {
+
         for (peer = peers->peer; peer; peer = peer->next) {
-            if (equals<PeerT>(peer, op->server, op->name)) {
-                ngx_dynamic_upstream_op_update_peer<PeersT, PeerT>(log, op,
-                                                                   peers, peer);
+
+            if (equals<typename TypeSelect<S>::peer_type>(peer,
+                                                          op->server,
+                                                          op->name)) {
+
+                ngx_dynamic_upstream_op_update_peer<S>(peers, peer, op, log);
                 count++;
             }
         }
     }
 
     if (count == 0) {
+
         op->status = NGX_HTTP_BAD_REQUEST;
         op->err = "server or peer is not found";
+
         return NGX_ERROR;
     }
 
