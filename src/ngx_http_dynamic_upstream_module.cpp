@@ -633,7 +633,7 @@ ngx_dynamic_upstream_loop()
 
     for (j = 0; j < umcf->upstreams.nelts; j++) {
 
-        if (uscf[j]->shm_zone == NULL)
+        if (uscf[j]->srv_conf == NULL || uscf[j]->shm_zone == NULL)
             continue;
 
         if (ngx_process == NGX_PROCESS_WORKER

@@ -1222,7 +1222,7 @@ ngx_dynamic_upstream_op_update(typename TypeSelect<S>::peers_type *primary,
 
     unsigned   count = 0;
 
-    ngx_upstream_rr_peers_wlock<typename TypeSelect<S>::peers_type> rl(primary,
+    ngx_upstream_rr_peers_wlock<typename TypeSelect<S>::peers_type> wl(primary,
         op->no_lock);
 
     for (peers = primary; peers; peers = peers->next) {
