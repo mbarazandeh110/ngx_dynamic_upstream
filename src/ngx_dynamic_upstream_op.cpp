@@ -316,8 +316,8 @@ ngx_dynamic_upstream_parse_url(ngx_url_t *u, ngx_pool_t *pool,
 
         } else {
 
-            op->err = "failed to resolve";
             op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
+            op->err = "failed to resolve";
 
             return NGX_ERROR;
         }
@@ -365,9 +365,13 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
 
     op->status = NGX_HTTP_OK;
 
-    for (peers = primary; peers && j < 2; peers = peers->next, j++) {
+    for (peers = primary;
+         peers && j < 2;
+         peers = peers->next, j++) {
 
-        for (peer = peers->peer; peer; peer = peer->next) {
+        for (peer = peers->peer;
+             peer;
+             peer = peer->next) {
 
             if (equals<typename TypeSelect<S>::peer_type>(peer,
                                                           op->server,
@@ -673,19 +677,27 @@ ngx_dynamic_upstream_op_server_exist(ngx_array_t *servers,
 }
 
 
-static ngx_uint_t
+template <class S> ngx_uint_t
 ngx_dynamic_upstream_op_peer_exist(ngx_array_t *servers,
-    ngx_str_t name)
+    typename TypeSelect<S>::peer_type *peer)
 {
     ngx_server_t  *server = (ngx_server_t *) servers->elts;
     unsigned       i, j;
 
-    for (j = 0; j < servers->nelts; ++j)
+    for (j = 0; j < servers->nelts; ++j) {
+
+        if (!str_eq(server[j].name, peer->server))
+            continue;
+
+        if (server[j].u.naddrs == 0)
+            return 1;
+
         for (i = 0; i < server[j].u.naddrs; ++i) {
 
-            if (str_eq(server[j].u.addrs[i].name, name))
+            if (str_eq(server[j].u.addrs[i].name, peer->name))
                 return 1;
         }
+    }
 
     return 0;
 }
@@ -705,9 +717,13 @@ ngx_dynamic_upstream_op_servers(typename TypeSelect<S>::peers_type *primary,
 
     ngx_upstream_rr_peers_rlock<typename TypeSelect<S>::peers_type> rl(primary);
 
-    for (peers = primary; peers && j < 2; peers = peers->next, j++) {
+    for (peers = primary;
+         peers && j < 2;
+         peers = peers->next, j++) {
 
-        for (peer = peers->peer; peer; peer = peer->next) {
+        for (peer = peers->peer;
+             peer;
+             peer = peer->next) {
 
             if (!ngx_dynamic_upstream_op_server_exist(servers, peer->server)) {
 
@@ -753,7 +769,7 @@ ngx_dynamic_upstream_op_check_hash(typename TypeSelect<S>::peers_type *primary,
 
     *hash = 0;
 
-    for (peers = primary; peers && i < 2; peers = peers->next, i++)
+    for (peers = primary;peers && i < 2; peers = peers->next, i++)
         for (peer = peers->peer; peer; peer = peer->next)
             *hash += ngx_crc32_short(peer->server.data,
                                      peer->server.len);
@@ -829,10 +845,18 @@ again:
     server = (ngx_server_t *) servers->elts;
 
     for (j = 0; j < servers->nelts; ++j) {
+
         op->server = server[j].name;
+
         if (ngx_dynamic_upstream_parse_url(&server[j].u, guard.pool,
-                                           op) != NGX_OK)
-            return NGX_ERROR;
+                                           op) != NGX_OK) {
+
+            ngx_log_error(NGX_LOG_WARN, log, 0, "%V: server %V: %s",
+                          &op->upstream, &op->server, op->err);
+
+            op->status = NGX_HTTP_OK;
+            op->err = NULL;
+        }
     }
 
     ngx_upstream_rr_peers_wlock<typename TypeSelect<S>::peers_type> wl(primary);
@@ -879,16 +903,20 @@ again:
 
     i = 0;
 
-    for (peers = primary; peers && i < 2; peers = peers->next, i++) {
+    for (peers = primary;
+         peers && i < 2;
+         peers = peers->next, i++) {
 
-        for (peer = peers->peer; peer; peer = peer->next) {
+        for (peer = peers->peer;
+             peer;
+             peer = peer->next) {
 
-            if ((peer->name.data[0] == '[' &&
-                !(op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6)) ||
-                !ngx_dynamic_upstream_op_peer_exist(servers, peer->name))
-            {
+            if ((peer->name.data[0] == '['
+                 && !(op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6))
+                || !ngx_dynamic_upstream_op_peer_exist<S>(servers, peer)) {
 
-                op->server = peer->name;
+                op->server = peer->server;
+                op->name = peer->name;
 
                 if (ngx_dynamic_upstream_op_del<S>(primary, op, shpool, log)
                         == NGX_ERROR)
@@ -1067,16 +1095,27 @@ again:
 
     deleted = NULL;
 
-    for (peers = primary; peers && i < 2; peers = peers->next, i++) {
+    for (peers = primary;
+         peers && i < 2;
+         peers = peers->next, i++) {
 
         prev = NULL;
 
-        for (peer = peers->peer; peer; peer = peer->next) {
+        for (peer = peers->peer;
+             peer;
+             peer = peer->next) {
 
             if (equals<typename TypeSelect<S>::peer_type>(peer, op->server,
                     op->name)) {
 
-                if (peers == primary && peers->number == 1) {
+                if (peers == primary && peers->single) {
+
+                    if (equals<typename TypeSelect<S>::peer_type>(peer, noaddr,
+                            noaddr)) {
+
+                        op->status = NGX_HTTP_NOT_MODIFIED;
+                        return NGX_OK;
+                    }
 
                     ngx_memzero(&add_op, sizeof(ngx_dynamic_upstream_op_t));
 
@@ -1225,9 +1264,13 @@ ngx_dynamic_upstream_op_update(typename TypeSelect<S>::peers_type *primary,
     ngx_upstream_rr_peers_wlock<typename TypeSelect<S>::peers_type> wl(primary,
         op->no_lock);
 
-    for (peers = primary; peers; peers = peers->next) {
+    for (peers = primary;
+         peers;
+         peers = peers->next) {
 
-        for (peer = peers->peer; peer; peer = peer->next) {
+        for (peer = peers->peer;
+             peer;
+             peer = peer->next) {
 
             if (equals<typename TypeSelect<S>::peer_type>(peer,
                                                           op->server,

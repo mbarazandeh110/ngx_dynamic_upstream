@@ -129,3 +129,21 @@ server 127.0.0.1:6002 addr=127.0.0.1:6002;
 --- response_body
 server 0.0.0.0:1 addr=0.0.0.0:1 down;
 
+
+=== TEST 7: remove single 0.0.0.0:1
+--- stream_config
+    upstream backends {
+        zone zone_for_backends 128k;
+        server 0.0.0.0:1;
+    }
+--- stream_server_config
+    proxy_pass backends;
+--- config
+    location /dynamic {
+        dynamic_upstream;
+    }
+--- request
+    GET /dynamic?upstream=backends&server=0.0.0.0:1&remove=&stream=
+--- error_code: 304
+--- response_body
+server 0.0.0.0:1 addr=0.0.0.0:1;

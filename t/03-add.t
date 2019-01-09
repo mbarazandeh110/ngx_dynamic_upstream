@@ -192,3 +192,19 @@ server 127.0.0.1:6003 addr=127.0.0.1:6003;
 --- response_body
 server 127.0.0.1:6001 addr=127.0.0.1:6001;
 
+
+=== TEST 9: add single 0.0.0.0:1
+--- http_config
+    upstream backends {
+        zone zone_for_backends 128k;
+        server 0.0.0.0:1;
+    }
+--- config
+    location /dynamic {
+        dynamic_upstream;
+    }
+--- request
+    GET /dynamic?upstream=backends&server=0.0.0.0:1&add=
+--- error_code: 304
+--- response_body
+server 0.0.0.0:1 addr=0.0.0.0:1;

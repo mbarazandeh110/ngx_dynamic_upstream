@@ -99,32 +99,33 @@ static ngx_command_t ngx_http_dynamic_upstream_commands[] = {
 
 static ngx_command_t ngx_stream_dynamic_upstream_commands[] = {
 
-    {
-        ngx_string("dns_update"),
-        NGX_STREAM_UPS_CONF | NGX_CONF_TAKE1,
-        ngx_conf_set_sec_slot,
-        NGX_STREAM_SRV_CONF_OFFSET,
-        offsetof(ngx_dynamic_upstream_srv_conf_t, interval),
-        NULL
-    },
+    { ngx_string("dns_update"),
+      NGX_STREAM_UPS_CONF | NGX_CONF_TAKE1,
+      ngx_conf_set_sec_slot,
+      NGX_STREAM_SRV_CONF_OFFSET,
+      offsetof(ngx_dynamic_upstream_srv_conf_t, interval),
+      NULL },
 
-    {
-        ngx_string("dns_add_down"),
-        NGX_STREAM_UPS_CONF | NGX_CONF_TAKE1,
-        ngx_conf_set_flag_slot,
-        NGX_STREAM_SRV_CONF_OFFSET,
-        offsetof(ngx_dynamic_upstream_srv_conf_t, add_down),
-        NULL
-    },
+    { ngx_string("dns_add_down"),
+      NGX_STREAM_UPS_CONF | NGX_CONF_TAKE1,
+      ngx_conf_set_flag_slot,
+      NGX_STREAM_SRV_CONF_OFFSET,
+      offsetof(ngx_dynamic_upstream_srv_conf_t, add_down),
+      NULL },
 
-    {
-        ngx_string("dns_ipv6"),
-        NGX_STREAM_UPS_CONF | NGX_CONF_TAKE1,
-        ngx_conf_set_flag_slot,
-        NGX_STREAM_SRV_CONF_OFFSET,
-        offsetof(ngx_dynamic_upstream_srv_conf_t, ipv6),
-        NULL
-    },
+    { ngx_string("dns_ipv6"),
+      NGX_STREAM_UPS_CONF | NGX_CONF_TAKE1,
+      ngx_conf_set_flag_slot,
+      NGX_STREAM_SRV_CONF_OFFSET,
+      offsetof(ngx_dynamic_upstream_srv_conf_t, ipv6),
+      NULL },
+
+    { ngx_string("dynamic_state_file"),
+      NGX_STREAM_UPS_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_str_slot,
+      NGX_STREAM_SRV_CONF_OFFSET,
+      offsetof(ngx_dynamic_upstream_srv_conf_t, file),
+      &ngx_servers_file_post },
 
     ngx_null_command
 };
@@ -521,6 +522,15 @@ ngx_dynamic_upstream_create_srv_conf(ngx_conf_t *cf)
 }
 
 
+extern ngx_int_t is_reserved_addr(ngx_str_t *addr);
+
+template <class S> ngx_int_t
+not_resolved(typename TypeSelect<S>::peer_type  *peer)
+{
+    return is_reserved_addr(&peer->name) && !is_reserved_addr(&peer->server);
+}
+
+
 template <class S> void
 ngx_http_dynamic_upstream_save(S *uscf, ngx_str_t file)
 {
@@ -534,6 +544,9 @@ ngx_http_dynamic_upstream_save(S *uscf, ngx_str_t file)
     ngx_array_t     *servers;
     ngx_str_t       *server, *s;
     ngx_uint_t       i;
+
+    static const ngx_str_t
+        default_server = ngx_string("server 0.0.0.0:1 down;");
 
     pool = ngx_create_pool(2048, ngx_cycle->log);
     if (pool == NULL) {
@@ -566,6 +579,9 @@ ngx_http_dynamic_upstream_save(S *uscf, ngx_str_t file)
              peer;
              peer = peer->next) {
 
+            if (not_resolved<S>(peer))
+                continue;
+
             for (i = 0; i < servers->nelts; i++)
                 if (ngx_memn2cmp(peer->server.data, server[i].data,
                                  peer->server.len, server[i].len) == 0)
@@ -589,6 +605,9 @@ ngx_http_dynamic_upstream_save(S *uscf, ngx_str_t file)
             }
         }
     }
+
+    if (ftell(f) == 0)
+        fwrite(default_server.data, default_server.len, 1, f);
 
 end:
 

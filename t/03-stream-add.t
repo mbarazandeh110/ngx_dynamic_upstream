@@ -192,7 +192,7 @@ server 127.0.0.1:6003 addr=127.0.0.1:6003;
 --- timeout: 5
 
 
-=== TEST 8: add
+=== TEST 8: add single
 --- stream_config
     upstream backends {
         zone zone_for_backends 128k;
@@ -209,3 +209,21 @@ server 127.0.0.1:6003 addr=127.0.0.1:6003;
 --- response_body_like
 server 127.0.0.1:6001 addr=127.0.0.1:6001;
 
+
+=== TEST 9: add single
+--- stream_config
+    upstream backends {
+        zone zone_for_backends 128k;
+        server 0.0.0.0:1;
+    }
+--- stream_server_config
+    proxy_pass backends;
+--- config
+    location /dynamic {
+        dynamic_upstream;
+    }
+--- request
+    GET /dynamic?upstream=backends&server=0.0.0.0:1&add=&stream=
+--- error_code: 304
+--- response_body_like
+server 0.0.0.0:1 addr=0.0.0.0:1;
