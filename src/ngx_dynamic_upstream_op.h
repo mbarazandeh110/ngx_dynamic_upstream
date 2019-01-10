@@ -155,18 +155,15 @@ struct TypeSelect<ngx_stream_upstream_srv_conf_t> {
 };
 
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-ngx_int_t ngx_dynamic_upstream_build_op(ngx_http_request_t *r,
-    ngx_dynamic_upstream_op_t *op);
 ngx_int_t ngx_dynamic_upstream_op_impl(ngx_log_t *log,
     ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool,
     void *peers);
 
-#ifdef __cplusplus
+ngx_inline ngx_flag_t
+str_eq(ngx_str_t s1, ngx_str_t s2)
+{
+    return ngx_memn2cmp(s1.data, s2.data, s1.len, s2.len) == 0;
 }
-#endif
+
 
 #endif /* NGX_DYNAMIC_UPSTEAM_OP_H */

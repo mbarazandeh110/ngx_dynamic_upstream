@@ -63,8 +63,8 @@ server 127.0.0.1:6004 addr=127.0.0.1:6004 weight=10 max_fails=1 fail_timeout=10 
     }
 --- request
     GET /dynamic?upstream=backends&server=127.0.0.1:6003&add=
---- response_body_like:
 --- error_code: 304
+--- response_body
 
 
 === TEST 4: add and remove
@@ -207,4 +207,3 @@ server 127.0.0.1:6001 addr=127.0.0.1:6001;
     GET /dynamic?upstream=backends&server=0.0.0.0:1&add=
 --- error_code: 304
 --- response_body
-server 0.0.0.0:1 addr=0.0.0.0:1;

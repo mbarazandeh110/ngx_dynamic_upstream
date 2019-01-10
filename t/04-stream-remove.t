@@ -87,8 +87,8 @@ server 127.0.0.1:6003 addr=127.0.0.1:6003;
     }
 --- request
     GET /dynamic?upstream=backends&server=127.0.0.1:6004&remove=&stream=
---- response_body_like:
 --- error_code: 304
+--- response_body
 
 
 === TEST 5: remove backup
@@ -146,4 +146,3 @@ server 0.0.0.0:1 addr=0.0.0.0:1 down;
     GET /dynamic?upstream=backends&server=0.0.0.0:1&remove=&stream=
 --- error_code: 304
 --- response_body
-server 0.0.0.0:1 addr=0.0.0.0:1;

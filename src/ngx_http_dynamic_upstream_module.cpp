@@ -190,10 +190,6 @@ ngx_module_t ngx_stream_dynamic_upstream_module = {
 };
 
 
-static ngx_int_t
-ngx_dynamic_upstream_handler(ngx_http_request_t *r);
-
-
 static FILE *
 state_open(ngx_str_t *state_file, const char *mode)
 {
@@ -238,6 +234,168 @@ ngx_create_servers_file(ngx_conf_t *cf, void *post, void *data)
 }
 
 
+// parse uri parameters
+
+static ngx_str_t
+get_str(ngx_http_request_t *r, const char *arg,
+    ngx_dynamic_upstream_op_t *op = NULL, ngx_int_t flag = 0)
+{
+    ngx_str_t                   name = { 0, (u_char *) alloca(128) }, val;
+    ngx_http_variable_value_t  *var;
+
+    name.len = ngx_snprintf(name.data, 128, "arg_%s", arg) - name.data;
+    var = ngx_http_get_variable(r, &name, ngx_hash_key(name.data, name.len));
+
+    ngx_str_null(&val);
+
+    if (!var->not_found) {
+
+        if (op != NULL)
+            op->op_param |= flag;
+        val.data = var->data;
+        val.len = var->len;
+    }
+
+    return val;
+}
+
+
+static ngx_int_t
+get_num(ngx_http_request_t *r, const char *arg,
+    ngx_dynamic_upstream_op_t *op = NULL, ngx_int_t flag = 0)
+{
+    ngx_str_t  v = get_str(r, arg, op, flag);
+    ngx_int_t  n;
+    if (v.data == NULL)
+        return 0;
+    n = ngx_atoi(v.data, v.len);
+    if (n == NGX_ERROR) {
+        op->status = NGX_HTTP_BAD_REQUEST;
+        op->err = (const char *) ngx_pcalloc(r->pool, 128);
+        ngx_snprintf((u_char *) op->err, 128, "%s: not a number", arg);
+        return NGX_ERROR;
+    }
+    return n;
+}
+
+
+static ngx_int_t
+get_bool(ngx_http_request_t *r, const char *arg,
+    ngx_dynamic_upstream_op_t *op, ngx_int_t flag = 0)
+{
+    return get_str(r, arg, op, flag).data != NULL;
+}
+
+
+ngx_int_t
+ngx_dynamic_upstream_build_op(ngx_http_request_t *r,
+    ngx_dynamic_upstream_op_t *op)
+{
+    static const ngx_int_t UPDATE_OP_PARAM = (
+        NGX_DYNAMIC_UPSTEAM_OP_PARAM_WEIGHT
+        | NGX_DYNAMIC_UPSTEAM_OP_PARAM_MAX_FAILS
+        | NGX_DYNAMIC_UPSTEAM_OP_PARAM_FAIL_TIMEOUT
+        | NGX_DYNAMIC_UPSTEAM_OP_PARAM_UP
+        | NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN
+#if defined(nginx_version) && (nginx_version >= 1011005)
+        | NGX_DYNAMIC_UPSTEAM_OP_PARAM_MAX_CONNS
+#endif
+    );
+
+    ngx_memzero(op, sizeof(ngx_dynamic_upstream_op_t));
+
+    op->err = "unexpected";
+    op->status = NGX_HTTP_OK;
+
+    op->upstream = get_str(r, "upstream", op);
+    if (!op->upstream.data) {
+
+        op->status = NGX_HTTP_BAD_REQUEST;
+        op->err = "upstream required";
+
+        return NGX_ERROR;
+    }
+
+    op->verbose = get_bool(r, "verbose", op);
+    op->backup = get_bool(r, "backup", op);
+    op->server = get_str(r, "server", op);
+    op->name = get_str(r, "peer", op);
+    op->up = get_bool(r, "up", op, NGX_DYNAMIC_UPSTEAM_OP_PARAM_UP);
+    op->down = get_bool(r, "down", op, NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN);
+    op->weight = get_num(r, "weight", op,
+        NGX_DYNAMIC_UPSTEAM_OP_PARAM_WEIGHT);
+    op->max_fails = get_num(r, "max_fails", op,
+        NGX_DYNAMIC_UPSTEAM_OP_PARAM_MAX_FAILS);
+    op->fail_timeout = get_num(r, "fail_timeout", op,
+        NGX_DYNAMIC_UPSTEAM_OP_PARAM_FAIL_TIMEOUT);
+#if defined(nginx_version) && (nginx_version >= 1011005)
+    op->max_conns = get_num(r, "max_conns", op,
+        NGX_DYNAMIC_UPSTEAM_OP_PARAM_MAX_CONNS);
+#endif
+    get_bool(r, "stream", op, NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM);
+    get_bool(r, "ipv6", op, NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6);
+    if (get_bool(r, "add", op))
+        op->op |= NGX_DYNAMIC_UPSTEAM_OP_ADD;
+    if (get_bool(r, "remove", op))
+        op->op |= NGX_DYNAMIC_UPSTEAM_OP_REMOVE;
+
+    if (op->status == NGX_HTTP_BAD_REQUEST)
+        return NGX_ERROR;
+
+    if (op->op_param & UPDATE_OP_PARAM) {
+
+        op->op |= NGX_DYNAMIC_UPSTEAM_OP_PARAM;
+        op->verbose = 1;
+    }
+
+    /* can not add, sync and remove at once */
+    if ((op->op & NGX_DYNAMIC_UPSTEAM_OP_ADD    ? 1 : 0) +
+        (op->op & NGX_DYNAMIC_UPSTEAM_OP_REMOVE ? 1 : 0) > 1)
+    {
+
+        op->status = NGX_HTTP_BAD_REQUEST;
+        op->err = "add and remove at once are not allowed";
+
+        return NGX_ERROR;
+    }
+
+    /* can not up and down at once */
+    if (op->up && op->down) {
+
+        op->status = NGX_HTTP_BAD_REQUEST;
+        op->err = "down and up at once are not allowed";
+
+        return NGX_ERROR;
+    }
+
+    if (op->op & NGX_DYNAMIC_UPSTEAM_OP_ADD)
+
+        op->op = NGX_DYNAMIC_UPSTEAM_OP_ADD;
+
+    else if (op->op & NGX_DYNAMIC_UPSTEAM_OP_REMOVE)
+
+        op->op = NGX_DYNAMIC_UPSTEAM_OP_REMOVE;
+
+    else if (op->op == 0)
+
+        op->op = NGX_DYNAMIC_UPSTEAM_OP_LIST;
+
+    if ((op->op & NGX_DYNAMIC_UPSTEAM_OP_ADD) ||
+        (op->op & NGX_DYNAMIC_UPSTEAM_OP_REMOVE)) {
+
+        if (op->server.data == NULL) {
+
+            op->err = "'server' argument required";
+            op->status = NGX_HTTP_BAD_REQUEST;
+
+            return NGX_ERROR;
+        }
+    }
+
+    return NGX_OK;
+}
+
+
 static ngx_dynamic_upstream_srv_conf_t *
 srv_conf(ngx_http_upstream_srv_conf_t *uscf)
 {
@@ -269,20 +427,18 @@ ngx_dynamic_upstream_get(ngx_dynamic_upstream_op_t *op)
     typename TypeSelect<S>::srv_type  **uscf;
 
     ngx_upstream_conf_t  u;
-    ngx_uint_t           i;
+    ngx_uint_t           j;
 
     ngx_memzero(&u, sizeof(ngx_upstream_conf_t));
     
     umcf = TypeSelect<S>::main_conf();
     uscf = (S **) umcf->upstreams.elts;
 
-    for (i = 0; i < umcf->upstreams.nelts; i++) {
+    for (j = 0; j < umcf->upstreams.nelts; j++) {
 
-        if (uscf[i]->host.len == op->upstream.len
-            && ngx_strncmp(uscf[i]->host.data, op->upstream.data,
-                           op->upstream.len) == 0) {
+        if (str_eq(uscf[j]->host, op->upstream)) {
 
-            if (uscf[i]->shm_zone == NULL) {
+            if (uscf[j]->shm_zone == NULL) {
 
                 op->status = NGX_HTTP_NOT_IMPLEMENTED;
                 op->err = "only for upstream with 'zone'";
@@ -290,8 +446,8 @@ ngx_dynamic_upstream_get(ngx_dynamic_upstream_op_t *op)
                 return u;
             }
 
-            u.uscf = uscf[i];
-            u.dscf = srv_conf(uscf[i]);
+            u.uscf = uscf[j];
+            u.dscf = srv_conf(uscf[j]);
 
             return u;
         }
@@ -304,68 +460,69 @@ ngx_dynamic_upstream_get(ngx_dynamic_upstream_op_t *op)
 }
 
 
-extern "C" ngx_int_t
+template <class S> ngx_int_t
+ngx_dynamic_upstream_do_op(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
+    void *uscfp)
+{
+    S  *uscf = static_cast<S*>(uscfp);
+
+    if (uscf->shm_zone == NULL) {
+
+        op->status = NGX_HTTP_NOT_IMPLEMENTED;
+        op->err = "only for upstream with 'zone'";
+
+        return NGX_ERROR;
+    }
+
+    return ngx_dynamic_upstream_op_impl(log, op,
+        (ngx_slab_pool_t *) uscf->shm_zone->shm.addr, uscf->peer.data);
+}
+
+
+ngx_int_t
 ngx_dynamic_upstream_op(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
     ngx_http_upstream_srv_conf_t *uscf)
 {
-    if (uscf->shm_zone == NULL) {
-
-        op->status = NGX_HTTP_NOT_IMPLEMENTED;
-        op->err = "only for upstream with 'zone'";
-
-        return NGX_ERROR;
-    }
-
-    return ngx_dynamic_upstream_op_impl(log, op,
-        (ngx_slab_pool_t *) uscf->shm_zone->shm.addr, uscf->peer.data);
+    return ngx_dynamic_upstream_do_op
+        <ngx_http_upstream_srv_conf_t>(log, op, uscf);
 }
 
 
-static ngx_int_t
-ngx_dynamic_upstream_op(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
-    ngx_stream_upstream_srv_conf_t *uscf)
-{
-    if (uscf->shm_zone == NULL) {
-
-        op->status = NGX_HTTP_NOT_IMPLEMENTED;
-        op->err = "only for upstream with 'zone'";
-
-        return NGX_ERROR;
-    }
-
-    return ngx_dynamic_upstream_op_impl(log, op,
-        (ngx_slab_pool_t *) uscf->shm_zone->shm.addr, uscf->peer.data);
-}
-
-
-extern "C" ngx_int_t
+ngx_int_t
 ngx_dynamic_upstream_stream_op(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
     ngx_stream_upstream_srv_conf_t *uscf)
 {
-    return ngx_dynamic_upstream_op(log, op, uscf);
+    return ngx_dynamic_upstream_do_op
+        <ngx_stream_upstream_srv_conf_t>(log, op, uscf);
 }
 
 
 template <class S> static void
-ngx_dynamic_upstream_response_impl(void *uscf,
-    ngx_buf_t *b, size_t size, ngx_int_t verbose)
+ngx_dynamic_upstream_print_response(void *uscfp,
+    ngx_buf_t *b, ngx_int_t verbose)
 {
-    typename TypeSelect<S>::peers_type  *peers, *backup;
+    S  *uscf = static_cast<S*>(uscfp);
+
+    typename TypeSelect<S>::peers_type  *peers;
     typename TypeSelect<S>::peer_type   *peer;
 
-    u_char     *last = b->last + size;
-    ngx_uint_t  i;
+    ngx_uint_t  j;
 
-    peers = (typename TypeSelect<S>::peers_type *) (((S *) uscf)->peer.data);
-    backup = (typename TypeSelect<S>::peers_type *) peers->next;
+    peers = (typename TypeSelect<S>::peers_type *) uscf->peer.data;
 
     ngx_upstream_rr_peers_rlock<typename TypeSelect<S>::peers_type> lock(peers);
 
-    for (i = 0; peers && i < 2; peers = peers->next, i++) {
-        for (peer = peers->peer; peer; peer = peer->next) {
+    for (j = 0;
+         peers != NULL && j < 2;
+         peers = peers->next, j++) {
+
+        for (peer = peers->peer;
+             peer != NULL;
+             peer = peer->next) {
             
             if (verbose) {
-                b->last = ngx_snprintf(b->last, last - b->last,
+
+                b->last = ngx_snprintf(b->last, b->end - b->last,
                     "server %V addr=%V weight=%d max_fails=%d fail_timeout=%d"
 #if defined(nginx_version) && (nginx_version >= 1011005)
                     " max_conns=%d"
@@ -379,16 +536,17 @@ ngx_dynamic_upstream_response_impl(void *uscf,
                     peer->conns);
 
             } else
-                b->last = ngx_snprintf(b->last, last - b->last,
+                b->last = ngx_snprintf(b->last, b->end - b->last,
                                        "server %V addr=%V", &peer->server,
                                        &peer->name);
 
-            b->last = peer->down
-                ? ngx_snprintf(b->last, last - b->last, " down")
-                : ngx_snprintf(b->last, last - b->last, "");
-            b->last = peers == backup
-                ? ngx_snprintf(b->last, last - b->last, " backup;\n")
-                : ngx_snprintf(b->last, last - b->last, ";\n");
+            if (peer->down)
+                b->last = ngx_snprintf(b->last, b->end - b->last, " down");
+
+            if (j == 1)
+                b->last = ngx_snprintf(b->last, b->end - b->last, " backup");
+
+            b->last =  ngx_snprintf(b->last, b->end - b->last, ";\n");
         }
     }
 }
@@ -396,14 +554,14 @@ ngx_dynamic_upstream_response_impl(void *uscf,
 
 static void
 ngx_dynamic_upstream_response(ngx_upstream_conf_t *conf,
-    ngx_buf_t *b, size_t size, ngx_dynamic_upstream_op_t *op)
+    ngx_buf_t *b, ngx_dynamic_upstream_op_t *op)
 {
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM)
-        ngx_dynamic_upstream_response_impl
-            <ngx_stream_upstream_srv_conf_t>(conf->uscf, b, size, op->verbose);
-    else
-        ngx_dynamic_upstream_response_impl
-            <ngx_http_upstream_srv_conf_t>(conf->uscf, b, size, op->verbose);
+        return ngx_dynamic_upstream_print_response
+            <ngx_stream_upstream_srv_conf_t>(conf->uscf, b, op->verbose);
+
+    ngx_dynamic_upstream_print_response
+        <ngx_http_upstream_srv_conf_t>(conf->uscf, b, op->verbose);
 }
 
 
@@ -411,22 +569,21 @@ static ngx_int_t
 ngx_dynamic_upstream_handler(ngx_http_request_t *r)
 {
     ngx_int_t                    rc = NGX_ERROR;
-    ngx_chain_t                  out;
     ngx_dynamic_upstream_op_t    op;
     ngx_buf_t                   *b;
     ngx_upstream_conf_t          conf;
+    ngx_http_complex_value_t     cv;
 
     if (r->method != NGX_HTTP_GET) {
+
         op.err = "only GET allowed";
         op.status = NGX_HTTP_NOT_ALLOWED;
-        goto resp;
+
+        goto response;
     }
 
-    if ((rc = ngx_http_discard_request_body(r)) != NGX_OK)
-        return rc;
-
     if ((rc = ngx_dynamic_upstream_build_op(r, &op)) != NGX_OK)
-        goto resp;
+        goto response;
 
     if (op.op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM)
         conf = ngx_dynamic_upstream_get
@@ -435,58 +592,61 @@ ngx_dynamic_upstream_handler(ngx_http_request_t *r)
         conf = ngx_dynamic_upstream_get
                     <ngx_http_upstream_srv_conf_t>(&op);
 
-    if (conf.uscf == NULL) {
+    if (conf.uscf != NULL) {
+
+        if (conf.dscf->interval != NGX_CONF_UNSET_MSEC)
+            op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE;
+
+        if (conf.dscf->ipv6 == 1)
+            op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6;
+
+        if (op.op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM)
+            rc = ngx_dynamic_upstream_do_op
+                    <ngx_stream_upstream_srv_conf_t>(r->connection->log, &op,
+                        conf.uscf);
+        else
+            rc = ngx_dynamic_upstream_do_op
+                    <ngx_http_upstream_srv_conf_t>(r->connection->log, &op,
+                        conf.uscf);
+    } else
         rc = NGX_ERROR;
-        goto resp;
-    }
 
-    if (conf.dscf->interval != NGX_CONF_UNSET_MSEC)
-        op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE;
-    if (conf.dscf->ipv6 == 1)
-        op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6;
+response:
 
-    if (op.op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM)
-        rc = ngx_dynamic_upstream_op(r->connection->log, &op,
-                (ngx_stream_upstream_srv_conf_t *) conf.uscf);
-    else
-        rc = ngx_dynamic_upstream_op(r->connection->log, &op,
-                (ngx_http_upstream_srv_conf_t *) conf.uscf);
+    static ngx_str_t TEXT_PLAIN = ngx_string("text/plain");
 
-resp:
+    ngx_memzero(&cv, sizeof(ngx_http_complex_value_t));
 
-    static const size_t size = ngx_pagesize * 100;
-    static const ngx_str_t text = ngx_string("text/plain");
+    if (rc == NGX_OK) {
 
-    b = ngx_create_temp_buf(r->pool, size);
-    if (b == NULL) {
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "no memory");
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    }
+        if (op.status != NGX_HTTP_NOT_MODIFIED) {
 
-    out.buf = b;
-    out.next = NULL;
+            b = ngx_create_temp_buf(r->pool, ngx_pagesize * 32);
+            if (b == NULL) {
 
-    r->headers_out.status = op.status;
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "no memory");
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
 
-    if (rc == NGX_OK)
-        ngx_dynamic_upstream_response(&conf, b, size, &op);
-    else {
+            ngx_dynamic_upstream_response(&conf, b, &op);
+
+            cv.value.len = b->last - b->start;
+            cv.value.data = b->start;
+        }
+
+    } else {
+
         if (op.status == NGX_HTTP_INTERNAL_SERVER_ERROR) {
+
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "%V: %s",
                           &op.upstream, op.err);
         }
-        b->last = ngx_snprintf(b->last, size, op.err);
+
+        cv.value.len = strlen(op.err);
+        cv.value.data = (u_char *) op.err;
     }
 
-    r->headers_out.content_type = text;
-    r->headers_out.content_length_n = b->last - b->pos;
-
-    b->last_buf = (r == r->main) ? 1 : 0;
-    b->last_in_chain = 1;
-
-    ngx_http_send_header(r);
-
-    return ngx_http_output_filter(r, &out);
+    return ngx_http_send_response(r, op.status, &TEXT_PLAIN, &cv);
 }
 
 
@@ -522,11 +682,10 @@ ngx_dynamic_upstream_create_srv_conf(ngx_conf_t *cf)
 }
 
 
-extern ngx_int_t is_reserved_addr(ngx_str_t *addr);
-
 template <class S> ngx_int_t
 not_resolved(typename TypeSelect<S>::peer_type  *peer)
 {
+    extern ngx_int_t is_reserved_addr(ngx_str_t *addr);
     return is_reserved_addr(&peer->name) && !is_reserved_addr(&peer->server);
 }
 
@@ -535,15 +694,14 @@ template <class S> void
 ngx_http_dynamic_upstream_save(S *uscf, ngx_str_t file)
 {
     typename TypeSelect<S>::peer_type   *peer;
-    typename TypeSelect<S>::peers_type  *peers, *primary;
+    typename TypeSelect<S>::peers_type  *peers;
 
-    ngx_uint_t       j = 0;
+    ngx_uint_t       j, i;
     u_char           srv[10240], *c;
     FILE            *f;
     ngx_pool_t      *pool;
     ngx_array_t     *servers;
     ngx_str_t       *server, *s;
-    ngx_uint_t       i;
 
     static const ngx_str_t
         default_server = ngx_string("server 0.0.0.0:1 down;");
@@ -561,9 +719,9 @@ ngx_http_dynamic_upstream_save(S *uscf, ngx_str_t file)
         return;
     }
 
-    primary = (typename TypeSelect<S>::peers_type *) uscf->peer.data;
+    peers = (typename TypeSelect<S>::peers_type *) uscf->peer.data;
 
-    ngx_rwlock_rlock(&primary->rwlock);
+    ngx_upstream_rr_peers_rlock<typename TypeSelect<S>::peers_type> rl(peers);
 
     servers = ngx_array_create(pool, 100, sizeof(ngx_str_t));
     if (servers == NULL)
@@ -571,12 +729,12 @@ ngx_http_dynamic_upstream_save(S *uscf, ngx_str_t file)
 
     server = (ngx_str_t *) servers->elts;
 
-    for (peers = primary;
-         peers && j < 2;
+    for (j = 0;
+         peers != NULL && j < 2;
          peers = peers->next, j++) {
 
         for (peer = peers->peer;
-             peer;
+             peer != NULL;
              peer = peer->next) {
 
             if (not_resolved<S>(peer))
@@ -610,8 +768,6 @@ ngx_http_dynamic_upstream_save(S *uscf, ngx_str_t file)
         fwrite(default_server.data, default_server.len, 1, f);
 
 end:
-
-    ngx_rwlock_unlock(&primary->rwlock);
 
     fclose(f);
 
@@ -675,7 +831,7 @@ ngx_dynamic_upstream_loop()
             if (dscf->file.data != NULL) {
 
                 op.op = NGX_DYNAMIC_UPSTEAM_OP_HASH;
-                if (ngx_dynamic_upstream_op(ngx_cycle->log, &op, uscf[j])
+                if (ngx_dynamic_upstream_do_op<S>(ngx_cycle->log, &op, uscf[j])
                         == NGX_DECLINED)
                     goto save;
             }
@@ -704,7 +860,8 @@ ngx_dynamic_upstream_loop()
 
         ngx_time_update();
 
-        if (ngx_dynamic_upstream_op(ngx_cycle->log, &op, uscf[j]) == NGX_OK) {
+        if (ngx_dynamic_upstream_do_op<S>(ngx_cycle->log, &op, uscf[j])
+                == NGX_OK) {
 
             if (op.status == NGX_HTTP_OK)
                 ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
@@ -759,6 +916,7 @@ ngx_http_dynamic_upstream_init_worker(ngx_cycle_t *cycle)
 
     if (pthread_create((pthread_t *) &DNS_sync_thr, NULL,
         ngx_http_dynamic_upstream_thread, NULL) != 0) {
+
         ngx_log_error(NGX_LOG_CRIT, cycle->log, 0,
                       "errno=%d, %s", errno, strerror(errno));
         return NGX_ERROR;
@@ -780,8 +938,10 @@ ngx_http_dynamic_upstream_exit_worker(ngx_cycle_t *cycle)
         return;
 
     if (DNS_sync_thr) {
+
         DNS_sync_thr = 0;
         pthread_join(saved, NULL);
+
         ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
                       "dynamic upstream: background thread stopped");
     }
