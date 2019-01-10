@@ -34,8 +34,11 @@ Production ready.
 |Default|-|
 |Context|upstream|
 
-Persistant state of upstream.  
-Example: dynamic_state_file backend.peers;
+Persistent state of upstream.  
+Example: dynamic_state_file backend.peers;  
+
+If you want to add servers in upstream, you **MUST** create backend.peers file manually and add these servers into it.  
+Add servers directly into `upstream` section is incorrect and you will see fake 0.0.0.0:1 server in list and backend.peers file.
 
 ## dns_update
 
@@ -74,6 +77,14 @@ http {
         server 127.0.0.1:6001;
         server 127.0.0.1:6002;
         server 127.0.0.1:6003;
+    }
+
+    # Persistent state
+    # DON't add servers directly into upstream section
+    # Add servers into backend.peers file
+    upstream backends2 {
+        zone zone_for_backends2 1m;
+        dynamic_state_file backend.peers;
     }
 
     server {
