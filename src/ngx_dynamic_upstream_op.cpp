@@ -411,7 +411,7 @@ struct ngx_pool_auto {
     ngx_pool_t   *pool;
 
     ngx_pool_auto(ngx_log_t *log)
-        : pool(ngx_create_pool(ngx_pagesize - 1, log))
+        : pool(ngx_create_pool(ngx_pagesize, log))
     {}
 
     ~ngx_pool_auto()
