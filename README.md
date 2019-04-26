@@ -42,7 +42,7 @@ Add servers directly into `upstream` section is incorrect and you will see fake 
 
 ## dns_update
 
-|Syntax |dns_update 60s|
+|Syntax |dns_update 60s [thread pool]|
 |-------|----------------|
 |Default|-|
 |Context|upstream|

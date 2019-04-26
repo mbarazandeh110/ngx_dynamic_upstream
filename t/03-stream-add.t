@@ -141,7 +141,7 @@ server 127.0.0.1:6004 addr=127.0.0.1:6004 backup;
 --- stream_config
     upstream backends {
         zone zone_for_backends 128k;
-        dns_update 1s;
+        dns_update 100ms;
         server 127.0.0.1:6001;
         server 127.0.0.1:6002;
         server 127.0.0.1:6003;
@@ -156,14 +156,14 @@ server 127.0.0.1:6004 addr=127.0.0.1:6004 backup;
        content_by_lua_block {
           local resp = assert(ngx.location.capture("/dynamic?upstream=backends&server=localhost:6004&add=&stream="))
           ngx.say(resp.body)
-          ngx.sleep(2)
+          ngx.sleep(1)
           resp = assert(ngx.location.capture("/dynamic?upstream=backends&stream="))
           ngx.print(resp.body)
           resp = assert(ngx.location.capture("/dynamic?upstream=backends&stream=&remove=&server=localhost:6004"))
           ngx.print(resp.body)
           resp = assert(ngx.location.capture("/dynamic?upstream=backends&server=localhost:6004&add=&stream=&backup="))
           ngx.say(resp.body)
-          ngx.sleep(2)
+          ngx.sleep(1)
           resp = assert(ngx.location.capture("/dynamic?upstream=backends&stream="))
           ngx.print(resp.body)
           resp = assert(ngx.location.capture("/dynamic?upstream=backends&stream=&remove=&server=localhost:6004"))
@@ -189,7 +189,7 @@ server localhost:6004 addr=127.0.0.1:6004 backup;
 server 127.0.0.1:6001 addr=127.0.0.1:6001;
 server 127.0.0.1:6002 addr=127.0.0.1:6002;
 server 127.0.0.1:6003 addr=127.0.0.1:6003;
---- timeout: 5
+--- timeout: 3
 
 
 === TEST 8: add single

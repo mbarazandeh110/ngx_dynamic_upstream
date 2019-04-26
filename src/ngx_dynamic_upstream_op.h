@@ -157,7 +157,7 @@ struct TypeSelect<ngx_stream_upstream_srv_conf_t> {
 
 ngx_int_t ngx_dynamic_upstream_op_impl(ngx_log_t *log,
     ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool,
-    void *peers);
+    ngx_pool_t *temp_pool, void *peers);
 
 ngx_inline ngx_flag_t
 str_eq(ngx_str_t s1, ngx_str_t s2)

@@ -24,9 +24,12 @@ ngx_dynamic_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static ngx_int_t
 ngx_http_dynamic_upstream_init_worker(ngx_cycle_t *cycle);
 
+#ifndef NGX_THREADS
+
 static void
 ngx_http_dynamic_upstream_exit_worker(ngx_cycle_t *cycle);
 
+#endif
 
 static void *
 ngx_dynamic_upstream_create_srv_conf(ngx_conf_t *cf);
@@ -35,14 +38,20 @@ ngx_dynamic_upstream_create_srv_conf(ngx_conf_t *cf);
 static char *
 ngx_create_servers_file(ngx_conf_t *cf, void *post, void *data);
 
+static char *
+ngx_dynamic_upstream_dns_update(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 typedef struct {
     ngx_msec_t  interval;
-    time_t      last;
+    ngx_msec_t  next;
     ngx_uint_t  hash;
     ngx_flag_t  ipv6;
     ngx_flag_t  add_down;
     ngx_str_t   file;
+#if (NGX_THREADS)
+    ngx_flag_t  busy;
+    ngx_thread_pool_t  *thread_pool;
+#endif
 } ngx_dynamic_upstream_srv_conf_t;
 
 static char *
@@ -53,7 +62,7 @@ static ngx_conf_post_t  ngx_servers_file_post = {
 
 static ngx_conf_num_bounds_t  ngx_check_update = {
     ngx_conf_check_num_bounds,
-    1, 3600
+    100, 3600000
 };
 
 static ngx_command_t ngx_http_dynamic_upstream_commands[] = {
@@ -66,8 +75,8 @@ static ngx_command_t ngx_http_dynamic_upstream_commands[] = {
       NULL },
 
     { ngx_string("dns_update"),
-      NGX_HTTP_UPS_CONF | NGX_CONF_TAKE1,
-      ngx_conf_set_sec_slot,
+      NGX_HTTP_UPS_CONF | NGX_CONF_TAKE12,
+      ngx_dynamic_upstream_dns_update,
       NGX_HTTP_SRV_CONF_OFFSET,
       offsetof(ngx_dynamic_upstream_srv_conf_t, interval),
       &ngx_check_update },
@@ -100,11 +109,11 @@ static ngx_command_t ngx_http_dynamic_upstream_commands[] = {
 static ngx_command_t ngx_stream_dynamic_upstream_commands[] = {
 
     { ngx_string("dns_update"),
-      NGX_STREAM_UPS_CONF | NGX_CONF_TAKE1,
-      ngx_conf_set_sec_slot,
+      NGX_STREAM_UPS_CONF | NGX_CONF_TAKE12,
+      ngx_dynamic_upstream_dns_update,
       NGX_STREAM_SRV_CONF_OFFSET,
       offsetof(ngx_dynamic_upstream_srv_conf_t, interval),
-      NULL },
+      &ngx_check_update },
 
     { ngx_string("dns_add_down"),
       NGX_STREAM_UPS_CONF | NGX_CONF_TAKE1,
@@ -168,7 +177,11 @@ ngx_module_t ngx_http_dynamic_upstream_module = {
     ngx_http_dynamic_upstream_init_worker,     /* init process      */
     NULL,                                      /* init thread       */
     NULL,                                      /* exit thread       */
+#if (NGX_THREADS)
+    NULL,
+#else
     ngx_http_dynamic_upstream_exit_worker,     /* exit process      */
+#endif
     NULL,                                      /* exit master       */
     NGX_MODULE_V1_PADDING
 };
@@ -462,9 +475,17 @@ ngx_dynamic_upstream_get(ngx_dynamic_upstream_op_t *op)
 
 template <class S> ngx_int_t
 ngx_dynamic_upstream_do_op(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
-    void *uscfp)
+    void *uscfp, ngx_pool_t *temp_pool)
 {
     S  *uscf = static_cast<S*>(uscfp);
+
+    if (temp_pool == NULL) {
+
+        op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
+        op->err = "no memory";
+
+        return NGX_ERROR;
+    }
 
     if (uscf->shm_zone == NULL) {
 
@@ -475,7 +496,8 @@ ngx_dynamic_upstream_do_op(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
     }
 
     return ngx_dynamic_upstream_op_impl(log, op,
-        (ngx_slab_pool_t *) uscf->shm_zone->shm.addr, uscf->peer.data);
+        (ngx_slab_pool_t *) uscf->shm_zone->shm.addr, temp_pool,
+        uscf->peer.data);
 }
 
 
@@ -483,8 +505,18 @@ ngx_int_t
 ngx_dynamic_upstream_op(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
     ngx_http_upstream_srv_conf_t *uscf)
 {
-    return ngx_dynamic_upstream_do_op
-        <ngx_http_upstream_srv_conf_t>(log, op, uscf);
+    ngx_int_t    retval;
+    ngx_pool_t  *temp_pool;
+
+    temp_pool = ngx_create_pool(1024, log);
+
+    retval = ngx_dynamic_upstream_do_op
+        <ngx_http_upstream_srv_conf_t>(log, op, uscf, temp_pool);
+
+    if (temp_pool != NULL)
+        ngx_destroy_pool(temp_pool);
+    
+    return retval;
 }
 
 
@@ -492,8 +524,18 @@ ngx_int_t
 ngx_dynamic_upstream_stream_op(ngx_log_t *log, ngx_dynamic_upstream_op_t *op,
     ngx_stream_upstream_srv_conf_t *uscf)
 {
-    return ngx_dynamic_upstream_do_op
-        <ngx_stream_upstream_srv_conf_t>(log, op, uscf);
+    ngx_int_t    retval;
+    ngx_pool_t  *temp_pool;
+
+    temp_pool = ngx_create_pool(1024, log);
+
+    retval = ngx_dynamic_upstream_do_op
+        <ngx_stream_upstream_srv_conf_t>(log, op, uscf, temp_pool);
+
+    if (temp_pool != NULL)
+        ngx_destroy_pool(temp_pool);
+    
+    return retval;
 }
 
 
@@ -603,11 +645,11 @@ ngx_dynamic_upstream_handler(ngx_http_request_t *r)
         if (op.op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_STREAM)
             rc = ngx_dynamic_upstream_do_op
                     <ngx_stream_upstream_srv_conf_t>(r->connection->log, &op,
-                        conf.uscf);
+                        conf.uscf, r->pool);
         else
             rc = ngx_dynamic_upstream_do_op
                     <ngx_http_upstream_srv_conf_t>(r->connection->log, &op,
-                        conf.uscf);
+                        conf.uscf, r->pool);
     } else
         rc = NGX_ERROR;
 
@@ -651,6 +693,33 @@ response:
 
 
 static char *
+ngx_dynamic_upstream_dns_update(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+#if (NGX_THREADS)
+    ngx_dynamic_upstream_srv_conf_t  *dscf;
+    ngx_str_t                        *arg;
+#endif
+
+    if (ngx_conf_set_msec_slot(cf, cmd, conf) == NGX_CONF_ERROR)
+        return (char *) NGX_CONF_ERROR;
+
+#if (NGX_THREADS)
+
+    dscf = (ngx_dynamic_upstream_srv_conf_t *) conf;
+    arg = (ngx_str_t *) cf->args->elts;
+
+    dscf->thread_pool = ngx_thread_pool_add(cf, cf->args->nelts == 3 ? arg + 2 :
+                                            NULL);
+    if (dscf->thread_pool == NULL)
+        return (char *) NGX_CONF_ERROR;
+
+#endif
+
+    return NGX_CONF_OK;
+}
+
+
+static char *
 ngx_dynamic_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_http_core_loc_conf_t  *clcf;
@@ -674,7 +743,7 @@ ngx_dynamic_upstream_create_srv_conf(ngx_conf_t *cf)
         return NULL;
 
     conf->interval = NGX_CONF_UNSET_MSEC;
-    conf->last = 0;
+    conf->next = 0;
     conf->ipv6 = NGX_CONF_UNSET;
     conf->add_down = NGX_CONF_UNSET;
 
@@ -691,7 +760,7 @@ not_resolved(typename TypeSelect<S>::peer_type  *peer)
 
 
 template <class S> void
-ngx_http_dynamic_upstream_save(S *uscf, ngx_str_t file)
+ngx_http_dynamic_upstream_save(S *uscf, ngx_str_t file, ngx_pool_t *temp_pool)
 {
     typename TypeSelect<S>::peer_type   *peer;
     typename TypeSelect<S>::peers_type  *peers;
@@ -699,31 +768,21 @@ ngx_http_dynamic_upstream_save(S *uscf, ngx_str_t file)
     ngx_uint_t       j, i;
     u_char           srv[10240], *c;
     FILE            *f;
-    ngx_pool_t      *pool;
     ngx_array_t     *servers;
     ngx_str_t       *server, *s;
 
     static const ngx_str_t
         default_server = ngx_string("server 0.0.0.0:1 down;");
 
-    pool = ngx_create_pool(2048, ngx_cycle->log);
-    if (pool == NULL) {
-        ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0,
-                      "dynamic upstream: no memory");
-        return;
-    }
-
     f = state_open(&file, "w+");
-    if (f == NULL) {
-        ngx_destroy_pool(pool);
+    if (f == NULL)
         return;
-    }
 
     peers = (typename TypeSelect<S>::peers_type *) uscf->peer.data;
 
     ngx_upstream_rr_peers_rlock<typename TypeSelect<S>::peers_type> rl(peers);
 
-    servers = ngx_array_create(pool, 100, sizeof(ngx_str_t));
+    servers = ngx_array_create(temp_pool, 100, sizeof(ngx_str_t));
     if (servers == NULL)
         goto nomem;
 
@@ -771,8 +830,6 @@ end:
 
     fclose(f);
 
-    ngx_destroy_pool(pool);
-
     return;
 
 nomem:
@@ -783,39 +840,23 @@ nomem:
 }
 
 
-template <class M, class S> void
-ngx_dynamic_upstream_loop()
+typedef struct {
+    void        *uscf;
+    ngx_pool_t  *temp_pool;
+} thread_ctx_t;
+
+
+template <class S> struct upstream_sync_functor
 {
-    M                                *umcf = NULL;
-    S                               **uscf = NULL;
-    ngx_dynamic_upstream_op_t         op;
-    ngx_uint_t                        j;
-    ngx_dynamic_upstream_srv_conf_t  *dscf;
-    time_t                            now = 0;
-    ngx_core_conf_t                  *ccf;
-    ngx_uint_t                        old_hash;
-
-    ccf = (ngx_core_conf_t *) ngx_get_conf(ngx_cycle->conf_ctx,
-                                           ngx_core_module);
-
-    umcf = TypeSelect<S>::main_conf();
-    if (umcf == NULL)
-        return;
-
-    uscf = (S **) umcf->upstreams.elts;
-    if (uscf == NULL)
-        return;
-
-    for (j = 0; j < umcf->upstreams.nelts; j++) {
-
-        if (uscf[j]->srv_conf == NULL || uscf[j]->shm_zone == NULL)
-            continue;
-
-        if (ngx_process == NGX_PROCESS_WORKER
-            && j % ccf->worker_processes != ngx_worker)
-            continue;
-
-        dscf = srv_conf(uscf[j]);
+    static void sync(void *ctxp, ngx_log_t *log)
+    {
+        thread_ctx_t                     *ctx = (thread_ctx_t *) ctxp;
+        S                                *uscf = (S *) ctx->uscf;
+        ngx_dynamic_upstream_op_t         op;
+        ngx_dynamic_upstream_srv_conf_t  *dscf = srv_conf(uscf);
+        ngx_time_t                       *tp;
+        ngx_msec_t                        now;
+        ngx_uint_t                        old_hash;
 
         ngx_memzero(&op, sizeof(ngx_dynamic_upstream_op_t));
 
@@ -831,24 +872,31 @@ ngx_dynamic_upstream_loop()
             if (dscf->file.data != NULL) {
 
                 op.op = NGX_DYNAMIC_UPSTEAM_OP_HASH;
-                if (ngx_dynamic_upstream_do_op<S>(ngx_cycle->log, &op, uscf[j])
-                        == NGX_DECLINED)
+                if (ngx_dynamic_upstream_do_op<S>(log, &op, uscf,
+                        ctx->temp_pool) == NGX_DECLINED)
                     goto save;
             }
 
-            continue;
+            return;
         }
 
-        time(&now);
+        ngx_time_update();
 
-        if (dscf->last + (time_t) dscf->interval <= now) {
+        tp = ngx_timeofday();
+        now = tp->sec * 1000 + tp->msec;
 
-            dscf->hash = 0;
-            dscf->last = now;
-        }
+        if (dscf->next > now)
+            return;
+
+#if (NGX_THREADS)
+        dscf->busy = 1;
+#endif
+
+        dscf->hash = 0;
+        dscf->next = now + dscf->interval;
 
         op.op = NGX_DYNAMIC_UPSTEAM_OP_SYNC;
-        op.upstream = uscf[j]->host;
+        op.upstream = uscf->host;
         op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE_SYNC;
         if (dscf->ipv6 == 1)
             op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6;
@@ -858,74 +906,213 @@ ngx_dynamic_upstream_loop()
             op.down = 1;
         }
 
-        ngx_time_update();
-
-        if (ngx_dynamic_upstream_do_op<S>(ngx_cycle->log, &op, uscf[j])
+        if (ngx_dynamic_upstream_do_op<S>(log, &op, uscf, ctx->temp_pool)
                 == NGX_OK) {
 
             if (op.status == NGX_HTTP_OK)
-                ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
+                ngx_log_error(NGX_LOG_INFO, log, 0,
                               "%V: dns synced", &op.upstream);
 
         } else if (op.status == NGX_HTTP_INTERNAL_SERVER_ERROR)
-            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "%V: %s",
+            ngx_log_error(NGX_LOG_ERR, log, 0, "%V: %s",
                           &op.upstream, op.err);
 
-save:
+    save:
 
         if (old_hash != op.hash) {
 
             if (dscf->file.data != NULL)
-                ngx_http_dynamic_upstream_save(uscf[j], dscf->file);
+                ngx_http_dynamic_upstream_save(uscf, dscf->file,
+                    ctx->temp_pool);
 
             dscf->hash = op.hash;
         }
     }
+
+#if (NGX_THREADS)
+
+    static void completion(ngx_event_t *ev)
+    {
+        thread_ctx_t                     *ctx = (thread_ctx_t *) ev->data;
+        S                                *uscf = (S *) ctx->uscf;
+        ngx_dynamic_upstream_srv_conf_t  *dscf = srv_conf(uscf);
+
+        dscf->busy = 0;
+        ngx_destroy_pool(ctx->temp_pool);
+    }
+
+#endif
+
+};
+
+
+#if (NGX_THREADS)
+template <class M, class S> void
+ngx_dynamic_upstream_loop()
+#else
+template <class M, class S> void
+ngx_dynamic_upstream_loop(ngx_uint_t *nelts, ngx_pool_t *temp_pool)
+#endif
+{
+    M                                *umcf = NULL;
+    S                               **uscf = NULL;
+    ngx_uint_t                        j;
+    ngx_core_conf_t                  *ccf;
+
+#if (NGX_THREADS)
+
+    ngx_pool_t                       *temp_pool;
+    thread_ctx_t                     *ctx;
+    ngx_thread_task_t                *task;
+    ngx_dynamic_upstream_srv_conf_t  *dscf;
+
+#else
+
+    thread_ctx_t                      ctx;
+
+#endif
+
+    ccf = (ngx_core_conf_t *) ngx_get_conf(ngx_cycle->conf_ctx,
+                                           ngx_core_module);
+
+    umcf = TypeSelect<S>::main_conf();
+    if (umcf == NULL)
+        return;
+
+    uscf = (S **) umcf->upstreams.elts;
+    if (uscf == NULL)
+        return;
+
+#if (NGX_THREADS)
+
+    for (j = 0; j < umcf->upstreams.nelts; j++) {
+
+#else
+
+    if (*nelts == 0)
+        *nelts = umcf->upstreams.nelts;
+
+    for (j = 0; j < *nelts; j++) {
+
+#endif
+
+        if (uscf[j]->srv_conf == NULL || uscf[j]->shm_zone == NULL)
+            continue;
+
+        if (ngx_process == NGX_PROCESS_WORKER
+            && j % ccf->worker_processes != ngx_worker)
+            continue;
+
+#if (NGX_THREADS)
+
+        dscf = srv_conf(uscf[j]);
+        if (dscf->busy)
+            continue;
+
+        if (dscf->file.data == NULL && dscf->interval == NGX_CONF_UNSET_MSEC)
+            continue;
+
+        temp_pool = ngx_create_pool(1024, ngx_cycle->log);
+        if (temp_pool == NULL)
+            return;
+
+        if (dscf->interval != NGX_CONF_UNSET_MSEC) {
+
+            task = ngx_thread_task_alloc(temp_pool, sizeof(thread_ctx_t));
+            if (task == NULL)
+                return;
+
+            ctx = (thread_ctx_t *) task->ctx;
+            ctx->temp_pool = temp_pool;
+            ctx->uscf = uscf[j];
+
+            task->handler = &upstream_sync_functor<S>::sync;
+            task->event.handler = &upstream_sync_functor<S>::completion;
+            task->event.data = ctx;
+
+            if (ngx_thread_task_post(dscf->thread_pool, task) != NGX_OK) {
+                ngx_destroy_pool(temp_pool);
+                return;
+            }
+
+        } else {
+
+            ctx = (thread_ctx_t *) ngx_palloc(temp_pool, sizeof(thread_ctx_t));
+            if (ctx == NULL) {
+                ngx_destroy_pool(temp_pool);
+                return;
+            }
+
+            ctx->temp_pool = temp_pool;
+            ctx->uscf = uscf[j];
+
+            upstream_sync_functor<S>::sync(ctx, ngx_cycle->log);
+
+            ngx_destroy_pool(temp_pool);
+        }
+
+#else
+
+        ctx.temp_pool = temp_pool;
+        ctx.uscf = uscf[j];
+
+        upstream_sync_functor<S>::sync(&ctx, ngx_cycle->log);
+
+#endif
+    }
 }
 
 
-static volatile pthread_t
-DNS_sync_thr = 0;
+#if (NGX_THREADS)
+
+static void
+ngx_http_dynamic_upstream_sync(ngx_event_t *ev)
+{
+    if (ngx_quit || ngx_terminate || ngx_exiting)
+        return;
+
+    ngx_dynamic_upstream_loop<ngx_http_upstream_main_conf_t,
+                              ngx_http_upstream_srv_conf_t>();
+
+    ngx_dynamic_upstream_loop<ngx_stream_upstream_main_conf_t,
+                              ngx_stream_upstream_srv_conf_t>();
+
+    ngx_add_timer(ev, 100);
+}
+
+#else
+
+static volatile
+pthread_t DNS_sync_thr = 0;
 
 
 static void *
 ngx_http_dynamic_upstream_thread(void *)
 {
-    unsigned j;
+    ngx_uint_t   h = 0, s = 0;
+    ngx_pool_t  *temp_pool;
 
     while (DNS_sync_thr) {
-        ngx_dynamic_upstream_loop<ngx_http_upstream_main_conf_t,
-                                  ngx_http_upstream_srv_conf_t>();
 
-        ngx_dynamic_upstream_loop<ngx_stream_upstream_main_conf_t,
-                                  ngx_stream_upstream_srv_conf_t>();
+        temp_pool = ngx_create_pool(1024, ngx_cycle->log);
 
-        for (j = 0; j < 10 && DNS_sync_thr; j++)
-            ngx_msleep(100);
+        if (temp_pool != NULL) {
+
+            ngx_dynamic_upstream_loop
+                <ngx_http_upstream_main_conf_t,
+                 ngx_http_upstream_srv_conf_t>(&h, temp_pool);
+
+            ngx_dynamic_upstream_loop
+                <ngx_stream_upstream_main_conf_t,
+                 ngx_stream_upstream_srv_conf_t>(&s, temp_pool);
+
+            ngx_destroy_pool(temp_pool);
+        }
+
+        ngx_msleep(100);
     }
 
     return 0;
-}
-
-
-static ngx_int_t
-ngx_http_dynamic_upstream_init_worker(ngx_cycle_t *cycle)
-{
-    if (ngx_process != NGX_PROCESS_WORKER && ngx_process != NGX_PROCESS_SINGLE)
-        return NGX_OK;
-
-    if (pthread_create((pthread_t *) &DNS_sync_thr, NULL,
-        ngx_http_dynamic_upstream_thread, NULL) != 0) {
-
-        ngx_log_error(NGX_LOG_CRIT, cycle->log, 0,
-                      "errno=%d, %s", errno, strerror(errno));
-        return NGX_ERROR;
-    }
-
-    ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
-                  "dynamic upstream: background thread started");
-
-    return NGX_OK;
 }
 
 
@@ -945,4 +1132,55 @@ ngx_http_dynamic_upstream_exit_worker(ngx_cycle_t *cycle)
         ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
                       "dynamic upstream: background thread stopped");
     }
+}
+
+#endif
+
+
+static ngx_int_t
+ngx_http_dynamic_upstream_init_worker(ngx_cycle_t *cycle)
+{
+#if (NGX_THREADS)
+
+    ngx_event_t       *ev;
+    ngx_connection_t   c;
+
+    c.fd = -1;
+
+#endif
+
+    if (ngx_process != NGX_PROCESS_WORKER && ngx_process != NGX_PROCESS_SINGLE)
+        return NGX_OK;
+
+#if (NGX_THREADS)
+
+    ev = (ngx_event_t *) ngx_pcalloc(cycle->pool, sizeof(ngx_event_t));
+    if (ev == NULL)
+        return NGX_ERROR;
+
+    ev->log = cycle->log;
+    ev->data = &c;
+    ev->handler = ngx_http_dynamic_upstream_sync;
+
+    ngx_add_timer(ev, 0);
+
+    ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
+                  "dynamic upstream: using nginx thread pool");
+
+#else
+
+    if (pthread_create((pthread_t *) &DNS_sync_thr, NULL,
+        ngx_http_dynamic_upstream_thread, NULL) != 0) {
+
+        ngx_log_error(NGX_LOG_CRIT, cycle->log, 0,
+                      "errno=%d, %s", errno, strerror(errno));
+        return NGX_ERROR;
+    }
+
+    ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
+                  "dynamic upstream: background thread started");
+
+#endif
+
+    return NGX_OK;
 }
