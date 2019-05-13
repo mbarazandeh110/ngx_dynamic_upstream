@@ -125,12 +125,10 @@ server 127.0.0.1:6004 addr=127.0.0.1:6004 backup;
 
 
 === TEST 7: add and remove dns resolve
---- main_config
-    thread_pool dynamic_upstream threads=10;
 --- http_config
     upstream backends {
         zone zone_for_backends 128k;
-        dns_update 100ms dynamic_upstream;
+        dns_update 500ms;
         server 127.0.0.1:6001;
         server 127.0.0.1:6002;
         server 127.0.0.1:6003;
@@ -209,3 +207,58 @@ server 127.0.0.1:6001 addr=127.0.0.1:6001;
     GET /dynamic?upstream=backends&server=0.0.0.0:1&add=
 --- error_code: 304
 --- response_body
+
+
+=== TEST 10: add and remove dns resolve with thread pool
+--- main_config
+    thread_pool dynamic_upstream threads=10;
+--- http_config
+    upstream backends {
+        zone zone_for_backends 128k;
+        dns_update 500ms dynamic_upstream;
+        server 127.0.0.1:6001;
+        server 127.0.0.1:6002;
+        server 127.0.0.1:6003;
+    }
+--- config
+    location /dynamic {
+        dynamic_upstream;
+    }
+    location /test {
+       content_by_lua_block {
+          local resp = assert(ngx.location.capture("/dynamic?upstream=backends&server=localhost:6004&add="))
+          ngx.say(resp.body)
+          ngx.sleep(1)
+          resp = assert(ngx.location.capture("/dynamic?upstream=backends"))
+          ngx.print(resp.body)
+          resp = assert(ngx.location.capture("/dynamic?upstream=backends&remove=&server=localhost:6004"))
+          ngx.print(resp.body)
+          resp = assert(ngx.location.capture("/dynamic?upstream=backends&server=localhost:6004&add=&backup="))
+          ngx.say(resp.body)
+          ngx.sleep(1)
+          resp = assert(ngx.location.capture("/dynamic?upstream=backends"))
+          ngx.print(resp.body)
+          resp = assert(ngx.location.capture("/dynamic?upstream=backends&remove=&server=localhost:6004"))
+          ngx.print(resp.body)
+       }
+    }
+--- request
+    GET /test
+--- response_body_like
+DNS resolving in progress
+server 127.0.0.1:6001 addr=127.0.0.1:6001;
+server 127.0.0.1:6002 addr=127.0.0.1:6002;
+server 127.0.0.1:6003 addr=127.0.0.1:6003;
+server localhost:6004 addr=127.0.0.1:6004;
+server 127.0.0.1:6001 addr=127.0.0.1:6001;
+server 127.0.0.1:6002 addr=127.0.0.1:6002;
+server 127.0.0.1:6003 addr=127.0.0.1:6003;
+DNS resolving in progress
+server 127.0.0.1:6001 addr=127.0.0.1:6001;
+server 127.0.0.1:6002 addr=127.0.0.1:6002;
+server 127.0.0.1:6003 addr=127.0.0.1:6003;
+server localhost:6004 addr=127.0.0.1:6004 backup;
+server 127.0.0.1:6001 addr=127.0.0.1:6001;
+server 127.0.0.1:6002 addr=127.0.0.1:6002;
+server 127.0.0.1:6003 addr=127.0.0.1:6003;
+--- timeout: 3

@@ -11,6 +11,8 @@ folder="$(ls -1 $DIR/install/tmp | grep nginx)"
 export PATH=$DIR/install/tmp/$folder/sbin:$PATH
 export LD_LIBRARY_PATH=$DIR/install/tmp/$folder/lib
 
+export TEST_NGINX_IGNORE_MISSING_DIRECTIVES=1
+
 ret=0
 
 for t in $(ls t/*.t)

@@ -21,17 +21,17 @@ extern "C" {
 
 
 template <class PeersT>
-class ngx_upstream_rr_peers_lock {
+class ngx_upstream_peers_lock {
     PeersT *peers;
     int     no_lock;
 
 protected:
 
-    ngx_upstream_rr_peers_lock(PeersT *p, int no)
+    ngx_upstream_peers_lock(PeersT *p, int no)
       : peers(p), no_lock(no)
     {}
 
-    virtual ~ngx_upstream_rr_peers_lock()
+    virtual ~ngx_upstream_peers_lock()
     {
         if (!no_lock)
             ngx_rwlock_unlock(&peers->rwlock);
@@ -64,20 +64,20 @@ public:
 };
 
 
-template <class PeersT> struct ngx_upstream_rr_peers_rlock :
-  public ngx_upstream_rr_peers_lock<PeersT> {
-    ngx_upstream_rr_peers_rlock(PeersT *p, int no_lock = 0) :
-        ngx_upstream_rr_peers_lock<PeersT>(p, no_lock)
+template <class PeersT> struct ngx_upstream_peers_rlock :
+  public ngx_upstream_peers_lock<PeersT> {
+    ngx_upstream_peers_rlock(PeersT *p, int no_lock = 0) :
+        ngx_upstream_peers_lock<PeersT>(p, no_lock)
     {
         this->rlock();
     }
 };
 
 
-template <class PeersT> struct ngx_upstream_rr_peers_wlock :
-  public ngx_upstream_rr_peers_lock<PeersT> {
-    ngx_upstream_rr_peers_wlock(PeersT *p, int no_lock = 0) :
-        ngx_upstream_rr_peers_lock<PeersT>(p, no_lock)
+template <class PeersT> struct ngx_upstream_peers_wlock :
+  public ngx_upstream_peers_lock<PeersT> {
+    ngx_upstream_peers_wlock(PeersT *p, int no_lock = 0) :
+        ngx_upstream_peers_lock<PeersT>(p, no_lock)
     {
         this->wlock();
     }
@@ -85,18 +85,30 @@ template <class PeersT> struct ngx_upstream_rr_peers_wlock :
 
 
 template <class PeerT>
-class ngx_upstream_rr_peer_lock {
+class ngx_upstream_peer_lock {
     PeerT *peer;
 
 public:
 
-    ngx_upstream_rr_peer_lock(PeerT *p)
+    ngx_upstream_peer_lock(PeerT *p)
       : peer(p)
+    {}
+
+    ngx_inline void
+    rlock()
     {
-        ngx_rwlock_wlock(&peer->lock);
+        if (peer != NULL)
+            ngx_rwlock_rlock(&peer->lock);
     }
 
-    virtual ~ngx_upstream_rr_peer_lock()
+    ngx_inline void
+    wlock()
+    {
+        if (peer != NULL)
+            ngx_rwlock_wlock(&peer->lock);
+    }
+
+    virtual ~ngx_upstream_peer_lock()
     {
         if (peer != NULL)
             ngx_rwlock_unlock(&peer->lock);
@@ -111,12 +123,28 @@ public:
 };
 
 
+template <class PeerT> struct ngx_upstream_peer_rlock :
+  public ngx_upstream_peer_lock<PeerT> {
+    ngx_upstream_peer_rlock(PeerT *p) :
+        ngx_upstream_peer_lock<PeerT>(p)
+    {
+        this->rlock();
+    }
+};
+
+
+template <class PeerT> struct ngx_upstream_peer_wlock :
+  public ngx_upstream_peer_lock<PeerT> {
+    ngx_upstream_peer_wlock(PeerT *p) :
+        ngx_upstream_peer_lock<PeerT>(p)
+    {
+        this->wlock();
+    }
+};
+
+
 template <class S>
-struct TypeSelect {};
-
-
-template <>
-struct TypeSelect<ngx_http_upstream_srv_conf_t> {
+struct TypeSelect {
     typedef ngx_http_upstream_main_conf_t  main_type;
     typedef ngx_http_upstream_srv_conf_t   srv_type;
     typedef ngx_http_upstream_rr_peers_t   peers_type;

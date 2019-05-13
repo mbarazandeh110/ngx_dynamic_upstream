@@ -379,8 +379,8 @@ ngx_dynamic_upstream_op_add_impl(ngx_log_t *log,
     ngx_flag_t                 empty;
     ngx_dynamic_upstream_op_t  del_op;
 
-    ngx_upstream_rr_peers_wlock<typename TypeSelect<S>::peers_type>
-        wl(primary, op->no_lock);
+    ngx_upstream_peers_wlock<typename TypeSelect<S>::peers_type>
+        lock(primary, op->no_lock);
 
     empty = primary->single && is_reserved_addr(&primary->peer->server);
 
@@ -529,7 +529,7 @@ ngx_dynamic_upstream_op_servers(typename TypeSelect<S>::peers_type *primary,
 
     *hash = 0;
 
-    ngx_upstream_rr_peers_rlock<typename TypeSelect<S>::peers_type> rl(primary);
+    ngx_upstream_peers_rlock<typename TypeSelect<S>::peers_type> lock(primary);
 
     for (peers = primary;
          peers != NULL && j < 2;
@@ -562,7 +562,7 @@ ngx_dynamic_upstream_op_servers(typename TypeSelect<S>::peers_type *primary,
 #endif
             }
 
-            *hash += ngx_crc32_short(peer->server.data, peer->server.len);
+            *hash += ngx_crc32_short(peer->server.data, peer->server.len) << j;
         }
     }
 
@@ -590,7 +590,7 @@ ngx_dynamic_upstream_op_check_hash(typename TypeSelect<S>::peers_type *primary,
              peer != NULL;
              peer = peer->next)
 
-            *hash += ngx_crc32_short(peer->server.data, peer->server.len);
+            *hash += ngx_crc32_short(peer->server.data, peer->server.len) << j;
 
     return *hash == old_hash ? NGX_OK : NGX_DECLINED;
 }
@@ -600,7 +600,7 @@ template <class S> static ngx_int_t
 ngx_dynamic_upstream_op_hash(typename TypeSelect<S>::peers_type *primary,
     ngx_dynamic_upstream_op_t *op)
 {
-    ngx_upstream_rr_peers_rlock<typename TypeSelect<S>::peers_type> rl(primary);
+    ngx_upstream_peers_rlock<typename TypeSelect<S>::peers_type> lock(primary);
     return ngx_dynamic_upstream_op_check_hash<S>(primary,
         &op->hash);
 }
@@ -668,7 +668,7 @@ again:
         }
     }
 
-    ngx_upstream_rr_peers_wlock<typename TypeSelect<S>::peers_type> wl(primary);
+    ngx_upstream_peers_wlock<typename TypeSelect<S>::peers_type> lock(primary);
 
     if (ngx_dynamic_upstream_op_check_hash<S>(primary, &hash) == NGX_DECLINED) {
 
@@ -833,25 +833,25 @@ template <class PeerT> struct FreeFunctor {
 
 private:
 
-  static ngx_int_t do_free(ngx_slab_pool_t *shpool, PeerT *peer)
-  {
-      ngx_upstream_rr_peer_lock<PeerT> wl(peer);
+    static ngx_int_t do_free(ngx_slab_pool_t *shpool, PeerT *peer)
+    {
+        ngx_upstream_peer_wlock<PeerT> lock(peer);
 
-      if (peer->conns == 0) {
+        if (peer->conns == 0) {
 
-          ngx_slab_free(shpool, peer->server.data);
-          ngx_slab_free(shpool, peer->name.data);
-          ngx_slab_free(shpool, peer->sockaddr);
+            ngx_slab_free(shpool, peer->server.data);
+            ngx_slab_free(shpool, peer->name.data);
+            ngx_slab_free(shpool, peer->sockaddr);
 
-          wl.release();
+            lock.release();
 
-          ngx_slab_free(shpool, peer);
+            ngx_slab_free(shpool, peer);
 
-          return 0;
-      }
+            return 0;
+        }
 
-      return -1;
-  }
+        return -1;
+    }
 };
 
 
@@ -896,7 +896,7 @@ ngx_dynamic_upstream_op_del(typename TypeSelect<S>::peers_type *primary,
 
     op->status = NGX_HTTP_OK;
 
-    ngx_upstream_rr_peers_wlock<typename TypeSelect<S>::peers_type> wl(primary,
+    ngx_upstream_peers_wlock<typename TypeSelect<S>::peers_type> lock(primary,
         op->no_lock);
 
 again:
@@ -1015,7 +1015,7 @@ ngx_dynamic_upstream_op_update_peer(typename TypeSelect<S>::peers_type *peers,
     typename TypeSelect<S>::peer_type *peer,
     ngx_dynamic_upstream_op_t *op, ngx_log_t *log)
 {
-    ngx_upstream_rr_peer_lock<typename TypeSelect<S>::peer_type> wl(peer);
+    ngx_upstream_peer_wlock<typename TypeSelect<S>::peer_type> lock(peer);
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_WEIGHT) {
 
@@ -1071,7 +1071,7 @@ ngx_dynamic_upstream_op_update(typename TypeSelect<S>::peers_type *primary,
     ngx_uint_t  j;
     unsigned    count = 0;
 
-    ngx_upstream_rr_peers_wlock<typename TypeSelect<S>::peers_type> wl(primary,
+    ngx_upstream_peers_wlock<typename TypeSelect<S>::peers_type> lock(primary,
         op->no_lock);
 
     for (peers = primary, j = 0;

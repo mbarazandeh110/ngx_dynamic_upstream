@@ -141,7 +141,7 @@ server 127.0.0.1:6004 addr=127.0.0.1:6004 backup;
 --- stream_config
     upstream backends {
         zone zone_for_backends 128k;
-        dns_update 100ms;
+        dns_update 500ms;
         server 127.0.0.1:6001;
         server 127.0.0.1:6002;
         server 127.0.0.1:6003;
