@@ -1,8 +1,5 @@
-t/servroot
-nginx-build.ini
-tmp/
-cpanm
-tmp
-download
+servroot
 install
+download
 build
+tmp

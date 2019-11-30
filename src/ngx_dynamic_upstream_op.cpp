@@ -181,15 +181,63 @@ equals(PeerT *peer, ngx_str_t server, ngx_str_t name)
 }
 
 
+static ngx_str_t
+ngx_str_shm(ngx_slab_pool_t *shpool, ngx_str_t *s)
+{
+    ngx_str_t  sh;
+    sh.data = ngx_shm_calloc<u_char>(shpool, s->len);
+    if (sh.data != NULL) {
+        ngx_memcpy(sh.data, s->data, s->len);
+        sh.len = s->len;
+    }
+    return sh;
+}
+
+
+template <class S> struct SearchResult {
+    typename TypeSelect<S>::peers_type  *peers;
+    typename TypeSelect<S>::peer_type   *peer;
+    typename TypeSelect<S>::peer_type   *prev;
+};
+
+
+template <class S> static SearchResult<S>
+search_peer(typename TypeSelect<S>::peers_type *primary,
+    ngx_str_t server, ngx_str_t name, ngx_flag_t exact = 0)
+{
+    SearchResult<S>  rv;
+    ngx_uint_t       j;
+    ngx_flag_t       is_reserved = is_reserved_addr(&name);
+
+    for (rv.peers = primary, j = 0, rv.prev = NULL;
+         rv.peers != NULL && j < 2;
+         rv.peers = rv.peers->next, rv.prev = NULL, j++) {
+
+        for (rv.peer = rv.peers->peer;
+             rv.peer != NULL;
+             rv.prev = rv.peer, rv.peer = rv.peer->next) {
+
+            if (equals<typename TypeSelect<S>::peer_type>(rv.peer, server, name)
+                || (!exact && is_reserved && str_eq(rv.peer->server, server)))
+                return rv;
+        }
+    }
+
+    return rv;
+}
+
+
 template <class S> static ngx_int_t
 ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
     ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool,
     typename TypeSelect<S>::peers_type *primary, ngx_url_t *u, int i)
 {
-    typename TypeSelect<S>::peers_type  *peers, *backup = primary->next;
-    typename TypeSelect<S>::peer_type   *peer, *last = NULL, *npeer;
+    typename TypeSelect<S>::peers_type  *peers, *backup;
+    typename TypeSelect<S>::peer_type   *npeer;
+    SearchResult<S>                      found;
 
-    ngx_uint_t   j;
+    peers = primary;
+    backup = primary->next;
 
     if (u->addrs[i].name.data[0] == '[' &&
         !(op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_IPV6)) {
@@ -200,100 +248,64 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
 
     op->status = NGX_HTTP_OK;
 
-    for (peers = primary, j = 0;
-         peers != NULL && j < 2;
-         peers = peers->next, j++) {
-
-        for (peer = peers->peer;
-             peer != NULL;
-             peer = peer->next) {
-
-            if (equals<typename TypeSelect<S>::peer_type>(peer,
-                                                          op->server,
-                                                          u->addrs[i].name)
-                || (is_reserved_addr(&u->addrs[i].name)
-                    && str_eq(peer->server, op->server))) {
-
-                if ((op->backup && j == 0) || (!op->backup && j == 1)) {
-
-                    op->status = NGX_HTTP_PRECONDITION_FAILED;
-                    op->err = "can't change server type (primary<->backup)";
-
-                    return NGX_ERROR;
-                }
-
-                op->status = NGX_HTTP_NOT_MODIFIED;
-                op->err = "exists";
-
-                return NGX_OK;
-            }
-
-            if ( (op->backup == 0 && peers == primary) ||
-                 (op->backup == 1 && peers == backup) )
-                last = peer;
-        }
+    found = search_peer<S>(primary, op->server, u->addrs[i].name);
+    if (found.peer == NULL) {
+        if (op->backup)
+            goto backup;
+        goto add;
     }
 
-    if (op->backup) {
+    if ((op->backup && found.peers == primary)
+        || (!op->backup && found.peers == backup)) {
+        op->status = NGX_HTTP_PRECONDITION_FAILED;
+        op->err = "can't change server type (primary<->backup)";
+        return NGX_ERROR;
+    }
 
+    op->status = NGX_HTTP_NOT_MODIFIED;
+    op->err = "exists";
+
+    return NGX_OK;
+
+backup:
+
+    if (backup == NULL) {
+        backup = ngx_shm_calloc<typename TypeSelect<S>::peers_type>(shpool);
         if (backup == NULL) {
-
-            assert(last == NULL);
-
-            backup = ngx_shm_calloc<typename TypeSelect<S>::peers_type>(shpool);
-            if (backup == NULL) {
-
-                op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
-                op->err = "no shared memory";
-
-                return NGX_ERROR;
-            }
-
-            backup->shpool = primary->shpool;
-            backup->name = primary->name;
+            op->status = NGX_HTTP_INTERNAL_SERVER_ERROR;
+            op->err = "no shared memory";
+            return NGX_ERROR;
         }
+        backup->shpool = primary->shpool;
+        backup->name = primary->name;
+    }
 
-        peers = backup;
+    peers = backup;
 
-    } else
-        peers = primary;
+add:
 
     npeer = ngx_shm_calloc<typename TypeSelect<S>::peer_type>(shpool);
     if (npeer == NULL)
         goto fail;
 
-    npeer->server.data = ngx_shm_calloc<u_char>(shpool, u->url.len + 1);
-    npeer->name.data = ngx_shm_calloc<u_char>(shpool, u->addrs[i].name.len + 1);
+    npeer->server = ngx_str_shm(shpool, &u->url);
+    npeer->name = ngx_str_shm(shpool, &u->addrs[i].name);
     npeer->sockaddr = ngx_shm_calloc<sockaddr>(shpool, u->addrs[i].socklen);
 
-    if (npeer->server.data == NULL)
+    if (npeer->server.data == NULL
+        || npeer->name.data == NULL
+        || npeer->sockaddr == NULL)
         goto fail;
-
-    if (npeer->name.data == NULL)
-        goto fail;
-
-    if (npeer->sockaddr == NULL)
-        goto fail;
-
-    npeer->name.len = u->addrs[i].name.len;
-    ngx_memcpy(npeer->name.data, u->addrs[i].name.data, npeer->name.len);
- 
-    npeer->server.len = u->url.len;
-    ngx_memcpy(npeer->server.data, u->url.data, npeer->server.len);
 
     npeer->socklen = u->addrs[i].socklen;
     ngx_memcpy(npeer->sockaddr, u->addrs[i].sockaddr, npeer->socklen);
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_WEIGHT) {
-
         npeer->weight = op->weight;
         npeer->effective_weight = op->weight;
-
     } else {
-
         npeer->weight = 1;
         npeer->effective_weight = 1;
-
     }
 
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_MAX_FAILS)
@@ -314,30 +326,23 @@ ngx_dynamic_upstream_op_add_peer(ngx_log_t *log,
     if (op->op_param & NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN)
         npeer->down = op->down;
 
-    if (last == NULL)
-        peers->peer = npeer;
-    else
-        last->next = npeer;
+    npeer->next = peers->peer;
+    peers->peer = npeer;
 
     peers->total_weight += npeer->weight;
     peers->single = (peers->number == 0);
     peers->number++;
     peers->weighted = (peers->total_weight != peers->number);
 
-    if (backup != NULL && primary->next == NULL)
-        primary->next = backup;
+    primary->next = backup;
 
     if (!is_reserved_addr(&u->addrs[i].name)) {
-
         ngx_log_error(NGX_LOG_NOTICE, log, 0, "%V: added server %V peer %V",
                       &op->upstream, &u->url, &u->addrs[i].name);
-
     } else {
-
         ngx_log_error(NGX_LOG_NOTICE, log, 0,
                       "%V: added server %V peer -.-.-.-",
                       &op->upstream, &u->url);
-
     }
 
     return NGX_OK;
@@ -751,52 +756,48 @@ typedef struct {
 } ngx_dynamic_cleanup_t;
 
 
-static ngx_connection_t dumb_conn;
-static ngx_event_t      cleanup_ev;
-
-
 static void
-ngx_dynamic_cleanup(ngx_event_t *ev);
+gc_collect(ngx_event_t *ev);
 
 
-static ngx_array_t *trash = NULL;
+static ngx_array_t *gc = NULL;
 
 
 static ngx_array_t *
-ngx_dynamic_trash_init()
+ngx_dynamic_gc_init()
 {
-    trash = ngx_array_create(ngx_cycle->pool, 100,
-                             sizeof(ngx_dynamic_cleanup_t));
+    ngx_pool_t  *pool = ngx_create_pool(1024, ngx_cycle->log);
+    if (pool == NULL)
+        return NULL;
 
-    if (trash) {
+    gc = ngx_array_create(pool, 100, sizeof(ngx_dynamic_cleanup_t));
+    if (gc == NULL)
+        return NULL;
 
-        ngx_memzero(&cleanup_ev, sizeof(ngx_event_t));
-        ngx_memzero(&dumb_conn, sizeof(ngx_connection_t));
+    static ngx_connection_t  c;
+    static ngx_event_t       ev;
 
-        dumb_conn.fd = -1;
-        cleanup_ev.handler = ngx_dynamic_cleanup;
-        cleanup_ev.data = &dumb_conn;
-        cleanup_ev.log = ngx_cycle->log;
+    c.fd = -1;
+    ev.handler = gc_collect;
+    ev.data = &c;
+    ev.log = ngx_cycle->log;
 
-        ngx_add_timer(&cleanup_ev, 1000);
-    }
+    ngx_add_timer(&ev, 1000);
 
-    return trash;
+    return gc;
 }
 
 
 static void
-ngx_dynamic_add_to_trash(ngx_slab_pool_t *shpool, void *peer, cleanup_t cb)
+ngx_dynamic_add_to_gc(ngx_slab_pool_t *shpool, void *peer, cleanup_t cb)
 {
     ngx_dynamic_cleanup_t  *p;
 
-    if (trash == NULL && ngx_dynamic_trash_init() == NULL)
+    if (gc == NULL && ngx_dynamic_gc_init() == NULL)
         return;
 
-    p = (ngx_dynamic_cleanup_t *) ngx_array_push(trash);
-
+    p = (ngx_dynamic_cleanup_t *) ngx_array_push(gc);
     if (p != NULL) {
-
         p->shpool = shpool;
         p->peer = peer;
         p->free = cb;
@@ -805,19 +806,19 @@ ngx_dynamic_add_to_trash(ngx_slab_pool_t *shpool, void *peer, cleanup_t cb)
 
 
 static void
-ngx_dynamic_cleanup(ngx_event_t *ev)
+gc_collect(ngx_event_t *ev)
 {
-    ngx_dynamic_cleanup_t *elts = (ngx_dynamic_cleanup_t *) trash->elts;
-    ngx_uint_t             i, j = 0;
+    ngx_dynamic_cleanup_t  *elts = (ngx_dynamic_cleanup_t *) gc->elts;
+    ngx_uint_t              i, j = 0;
 
-    if (trash->nelts == 0)
+    if (gc->nelts == 0)
         goto settimer;
 
-    for (i = 0; i < trash->nelts; i++)
-        if (elts[i].free(elts[i].shpool, elts[i].peer) == -1)
+    for (i = 0; i < gc->nelts; i++)
+        if (elts[i].free(elts[i].shpool, elts[i].peer) == NGX_AGAIN)
             elts[j++] = elts[i];
 
-    trash->nelts = j;
+    gc->nelts = j;
 
 settimer:
 
@@ -828,57 +829,33 @@ settimer:
 }
 
 
-template <class PeerT> struct FreeFunctor {
-  static ngx_int_t free(ngx_slab_pool_t *shpool, void *p);
-
-private:
-
-    static ngx_int_t do_free(ngx_slab_pool_t *shpool, PeerT *peer)
+template <class PeerT> struct GC
+{
+    static ngx_int_t collect(ngx_slab_pool_t *shpool, void *p)
     {
-        ngx_upstream_peer_wlock<PeerT> lock(peer);
+        PeerT *peer = static_cast<PeerT *>(p);
+
+        ngx_upstream_peer_rlock<PeerT> lock(peer);
 
         if (peer->conns == 0) {
-
             ngx_slab_free(shpool, peer->server.data);
             ngx_slab_free(shpool, peer->name.data);
             ngx_slab_free(shpool, peer->sockaddr);
-
-            lock.release();
-
             ngx_slab_free(shpool, peer);
 
-            return 0;
+            return NGX_OK;
         }
 
-        return -1;
+        return NGX_AGAIN;
     }
 };
-
-
-template <> ngx_int_t
-FreeFunctor<ngx_http_upstream_rr_peer_t>::free
-    (ngx_slab_pool_t *shpool, void *p)
-{
-    return FreeFunctor<ngx_http_upstream_rr_peer_t>::do_free(shpool,
-        (ngx_http_upstream_rr_peer_t *) p);
-}
-
-
-template <> ngx_int_t
-FreeFunctor<ngx_stream_upstream_rr_peer_t>::free
-    (ngx_slab_pool_t *shpool, void *p)
-{
-    return FreeFunctor<ngx_stream_upstream_rr_peer_t>::do_free(shpool,
-        (ngx_stream_upstream_rr_peer_t *) p);
-}
 
 
 template <class PeerT> static void
 ngx_dynamic_upstream_op_free_peer(ngx_slab_pool_t *shpool, PeerT *peer)
 {
-    if (FreeFunctor<PeerT>::free(shpool, peer) == -1)
-        ngx_dynamic_add_to_trash(shpool, peer,
-                                 &FreeFunctor<PeerT>::free);
+    if (GC<PeerT>::collect(shpool, peer) == NGX_AGAIN)
+        ngx_dynamic_add_to_gc(shpool, peer, &GC<PeerT>::collect);
 }
 
 
@@ -887,124 +864,84 @@ ngx_dynamic_upstream_op_del(typename TypeSelect<S>::peers_type *primary,
     ngx_dynamic_upstream_op_t *op, ngx_slab_pool_t *shpool,
     ngx_pool_t *temp_pool, ngx_log_t *log)
 {
-    typename TypeSelect<S>::peers_type  *peers, *backup = primary->next;
-    typename TypeSelect<S>::peer_type   *peer, *deleted, *prev;
-
-    ngx_int_t                  count = 0;
-    ngx_uint_t                 j;
+    SearchResult<S>            found;
     ngx_dynamic_upstream_op_t  add_op;
 
-    op->status = NGX_HTTP_OK;
+    op->status = NGX_HTTP_NOT_MODIFIED;
 
     ngx_upstream_peers_wlock<typename TypeSelect<S>::peers_type> lock(primary,
         op->no_lock);
 
 again:
 
-    deleted = NULL;
-
-    for (peers = primary, j = 0;
-         peers != NULL && j < 2;
-         peers = peers->next, j++) {
-
-        prev = NULL;
-
-        for (peer = peers->peer;
-             peer != NULL;
-             peer = peer->next) {
-
-            if (equals<typename TypeSelect<S>::peer_type>(peer, op->server,
-                    op->name)) {
-
-                if (peers == primary && peers->single) {
-
-                    if (equals<typename TypeSelect<S>::peer_type>(peer, noaddr,
-                            noaddr)) {
-
-                        op->status = NGX_HTTP_NOT_MODIFIED;
-                        return NGX_OK;
-                    }
-
-                    ngx_memzero(&add_op, sizeof(ngx_dynamic_upstream_op_t));
-
-                    add_op.no_lock = 1;
-                    add_op.op = NGX_DYNAMIC_UPSTEAM_OP_ADD;
-                    add_op.upstream = op->upstream;
-                    add_op.server = noaddr;
-                    add_op.name = noaddr;
-                    add_op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN;
-                    add_op.down = 1;
-
-                    if (ngx_dynamic_upstream_op_add<S>(primary, &add_op,
-                            shpool, temp_pool, log) != NGX_OK) {
-
-                        op->err = add_op.err;
-                        op->status = add_op.status;
-
-                        return NGX_ERROR;
-                    }
-
-                    goto again;
-                }
-
-                deleted = peer;
-                peer = peer->next;
-                count++;
-
-                goto del;
-            }
-
-            prev = peer;
-        }
-    }
-
-del:
-
-    /* not found */
-    if (deleted == NULL) {
-
-        if (count == 0)
-            op->status = NGX_HTTP_NOT_MODIFIED;
+    found = search_peer<S>(primary, op->server, op->name, 1);
+    if (found.peer == NULL)
         return NGX_OK;
+
+    if (!found.peers->single || found.peers == primary->next)
+        /* not single or backup */
+        goto check;
+
+    if (equals<typename TypeSelect<S>::peer_type>(found.peer, noaddr, noaddr))
+        return NGX_OK;
+
+    ngx_memzero(&add_op, sizeof(ngx_dynamic_upstream_op_t));
+
+    add_op.no_lock = 1;
+    add_op.op = NGX_DYNAMIC_UPSTEAM_OP_ADD;
+    add_op.upstream = op->upstream;
+    add_op.server = noaddr;
+    add_op.name = noaddr;
+    add_op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_DOWN;
+    add_op.down = 1;
+
+    if (ngx_dynamic_upstream_op_add<S>(primary, &add_op,
+            shpool, temp_pool, log) != NGX_OK) {
+        op->err = add_op.err;
+        op->status = add_op.status;
+        return NGX_ERROR;
     }
 
-    /* found head */
-    if (prev == NULL) {
+    goto again;
 
-        peers->peer = peer;
-        goto ok;
+check:
+
+    if (found.prev == NULL) {
+        /* found head */
+        found.peers->peer = found.peer->next;
+        goto del;
     }
 
-    /* found tail */
-    if (peer == NULL) {
-
-        prev->next = NULL;
-        goto ok;
+    if (found.peer->next == NULL) {
+        /* found tail */
+        found.prev->next = NULL;
+        goto del;
     }
 
     /* found inside */
-    prev->next = peer;
+    found.prev->next = found.peer->next;
 
- ok:
+ del:
 
-    peers->number--;
-    peers->total_weight -= deleted->weight;
-    peers->single = peers->number == 1;
-    peers->weighted = peers->total_weight != peers->number;
+    found.peers->number--;
+    found.peers->total_weight -= found.peer->weight;
+    found.peers->single = found.peers->number == 1;
+    found.peers->weighted = found.peers->total_weight != found.peers->number;
 
-    if (peers->number == 0) {
-
-        assert(peers == backup);
+    if (found.peers->number == 0) {
+        assert(found.peers == primary->next);
+        ngx_slab_free(shpool, primary->next);
         primary->next = NULL;
-        ngx_slab_free(shpool, backup);
     }
 
-    if (!is_reserved_addr(&deleted->name))
+    if (!is_reserved_addr(&found.peer->name))
         ngx_log_error(NGX_LOG_NOTICE, log, 0, "%V: removed server %V peer %V",
-                      &op->upstream, &deleted->server, &deleted->name);
+                      &op->upstream, &found.peer->server, &found.peer->name);
 
     ngx_dynamic_upstream_op_free_peer<typename TypeSelect<S>::peer_type>(shpool,
-        deleted);
+        found.peer);
+
+    op->status = NGX_HTTP_OK;
 
     goto again;
 }
@@ -1065,40 +1002,19 @@ template <class S> static ngx_int_t
 ngx_dynamic_upstream_op_update(typename TypeSelect<S>::peers_type *primary,
     ngx_dynamic_upstream_op_t *op, ngx_log_t *log)
 {
-    typename TypeSelect<S>::peers_type  *peers;
-    typename TypeSelect<S>::peer_type   *peer;
+    SearchResult<S>  found;
 
-    ngx_uint_t  j;
-    unsigned    count = 0;
-
-    ngx_upstream_peers_wlock<typename TypeSelect<S>::peers_type> lock(primary,
+    ngx_upstream_peers_rlock<typename TypeSelect<S>::peers_type> lock(primary,
         op->no_lock);
 
-    for (peers = primary, j = 0;
-         peers != NULL && j < 2;
-         peers = peers->next, j++) {
-
-        for (peer = peers->peer;
-             peer != NULL;
-             peer = peer->next) {
-
-            if (equals<typename TypeSelect<S>::peer_type>(peer,
-                                                          op->server,
-                                                          op->name)) {
-
-                ngx_dynamic_upstream_op_update_peer<S>(peers, peer, op, log);
-                count++;
-            }
-        }
-    }
-
-    if (count == 0) {
-
+    found = search_peer<S>(primary, op->server, op->name, 1);
+    if (found.peer == NULL) {
         op->status = NGX_HTTP_BAD_REQUEST;
         op->err = "server or peer is not found";
-
         return NGX_ERROR;
     }
+
+    ngx_dynamic_upstream_op_update_peer<S>(found.peers, found.peer, op, log);
 
     return NGX_OK;
 }

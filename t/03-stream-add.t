@@ -25,10 +25,10 @@ __DATA__
 --- request
     GET /dynamic?upstream=backends&server=127.0.0.1:6004&add=&stream=
 --- response_body_like
+server 127.0.0.1:6004 addr=127.0.0.1:6004;
 server 127.0.0.1:6001 addr=127.0.0.1:6001;
 server 127.0.0.1:6002 addr=127.0.0.1:6002;
 server 127.0.0.1:6003 addr=127.0.0.1:6003;
-server 127.0.0.1:6004 addr=127.0.0.1:6004;
 
 
 === TEST 2: add and update parameters
@@ -48,10 +48,10 @@ server 127.0.0.1:6004 addr=127.0.0.1:6004;
 --- request
     GET /dynamic?upstream=backends&server=127.0.0.1:6004&add=&weight=10&stream=
 --- response_body_like
+server 127.0.0.1:6004 addr=127.0.0.1:6004 weight=10 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 server 127.0.0.1:6001 addr=127.0.0.1:6001 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 server 127.0.0.1:6002 addr=127.0.0.1:6002 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 server 127.0.0.1:6003 addr=127.0.0.1:6003 weight=1 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
-server 127.0.0.1:6004 addr=127.0.0.1:6004 weight=10 max_fails=1 fail_timeout=10 max_conns=0 conns=0;
 
 
 === TEST 3: add duplicated server
@@ -153,31 +153,25 @@ server 127.0.0.1:6004 addr=127.0.0.1:6004 backup;
         dynamic_upstream;
     }
     location /test {
-       content_by_lua_block {
-          local resp = assert(ngx.location.capture("/dynamic?upstream=backends&server=localhost:6004&add=&stream="))
-          ngx.say(resp.body)
-          ngx.sleep(1)
-          resp = assert(ngx.location.capture("/dynamic?upstream=backends&stream="))
-          ngx.print(resp.body)
-          resp = assert(ngx.location.capture("/dynamic?upstream=backends&stream=&remove=&server=localhost:6004"))
-          ngx.print(resp.body)
-          resp = assert(ngx.location.capture("/dynamic?upstream=backends&server=localhost:6004&add=&stream=&backup="))
-          ngx.say(resp.body)
-          ngx.sleep(1)
-          resp = assert(ngx.location.capture("/dynamic?upstream=backends&stream="))
-          ngx.print(resp.body)
-          resp = assert(ngx.location.capture("/dynamic?upstream=backends&stream=&remove=&server=localhost:6004"))
-          ngx.print(resp.body)
-       }
+       echo_location /dynamic upstream=backends&server=localhost:6004&add=&stream=;
+       echo;
+       echo_sleep 1;
+       echo_location /dynamic upstream=backends&stream=;
+       echo_location /dynamic upstream=backends&stream=&remove=&server=localhost:6004;
+       echo_location /dynamic upstream=backends&server=localhost:6004&add=&stream=&backup=;
+       echo;
+       echo_sleep 1;
+       echo_location /dynamic upstream=backends&stream=;
+       echo_location /dynamic upstream=backends&stream=&remove=&server=localhost:6004;
     }
 --- request
     GET /test
 --- response_body_like
 DNS resolving in progress
+server localhost:6004 addr=127.0.0.1:6004;
 server 127.0.0.1:6001 addr=127.0.0.1:6001;
 server 127.0.0.1:6002 addr=127.0.0.1:6002;
 server 127.0.0.1:6003 addr=127.0.0.1:6003;
-server localhost:6004 addr=127.0.0.1:6004;
 server 127.0.0.1:6001 addr=127.0.0.1:6001;
 server 127.0.0.1:6002 addr=127.0.0.1:6002;
 server 127.0.0.1:6003 addr=127.0.0.1:6003;

@@ -468,6 +468,13 @@ ngx_dynamic_upstream_get(ngx_dynamic_upstream_op_t *op)
     ngx_memzero(&u, sizeof(ngx_upstream_conf_t));
 
     umcf = TypeSelect<S>::main_conf();
+
+    if (umcf == NULL) {
+        op->status = NGX_HTTP_BAD_REQUEST;
+        op->err = "module is not configured";
+        return u;
+    }
+
     uscf = (S **) umcf->upstreams.elts;
 
     for (j = 0; j < umcf->upstreams.nelts; j++) {
