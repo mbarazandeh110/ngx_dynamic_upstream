@@ -184,7 +184,7 @@ equals(PeerT *peer, ngx_str_t server, ngx_str_t name)
 static ngx_str_t
 ngx_str_shm(ngx_slab_pool_t *shpool, ngx_str_t *s)
 {
-    ngx_str_t  sh;
+    ngx_str_t  sh = ngx_null_string;
     sh.data = ngx_shm_calloc<u_char>(shpool, s->len);
     if (sh.data != NULL) {
         ngx_memcpy(sh.data, s->data, s->len);
