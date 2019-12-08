@@ -841,6 +841,9 @@ template <class PeerT> struct GC
             ngx_slab_free(shpool, peer->server.data);
             ngx_slab_free(shpool, peer->name.data);
             ngx_slab_free(shpool, peer->sockaddr);
+
+            lock.release();
+
             ngx_slab_free(shpool, peer);
 
             return NGX_OK;
