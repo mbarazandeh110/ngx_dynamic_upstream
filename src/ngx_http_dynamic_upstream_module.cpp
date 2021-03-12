@@ -959,6 +959,7 @@ template <class S> struct upstream_sync_functor
         dscf->next = now + dscf->interval;
 
         op.op = NGX_DYNAMIC_UPSTEAM_OP_SYNC;
+        op.hash = 0;
         op.upstream = uscf->host;
         op.op_param |= NGX_DYNAMIC_UPSTEAM_OP_PARAM_RESOLVE_SYNC;
         if (dscf->ipv6 == 1)
