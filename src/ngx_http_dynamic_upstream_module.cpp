@@ -824,6 +824,7 @@ ngx_http_dynamic_upstream_save(S *uscf, ngx_str_t filename,
 
     file.name = filename;
     file.offset = 0;
+    file.log = ngx_cycle->log;
  
     file.fd = ngx_open_file(filename.data, NGX_FILE_WRONLY,
                             NGX_FILE_TRUNCATE, NGX_FILE_DEFAULT_ACCESS);
