@@ -5,6 +5,10 @@ if [ "$1" == "" ]; then
   exit 0
 fi
 
+apt update
+apt install g++ gcc curl make -y
+
+
 download=0
 download_only=0
 download_all=0
@@ -17,9 +21,9 @@ make_clean=0
 
 DIR="$(pwd)"
 
-VERSION="1.17.6"
-PCRE_VERSION="8.40"
-ZLIB_VERSION="1.2.11"
+VERSION="1.24.0"
+PCRE_VERSION="8.45"
+ZLIB_VERSION="1.3"
 
 SUFFIX=""
 
@@ -62,15 +66,16 @@ ADDITIONAL_INCLUDES="-I$PCRE_PREFIX/include -I$ZLIB_PREFIX/include"
 ADDITIONAL_LIBS="-L$PCRE_PREFIX/lib -L$ZLIB_PREFIX/lib"
 
 function clean() {
-  rm -rf install  2>>$ERR_LOG
-  if [ $clean_all -eq 1 ]; then
-    rm -rf $BUILD_DIR  2>>$ERR_LOG
-  else
-    rm -rf $(ls -1d $BUILD_DIR/* 2>>$ERR_LOG | grep -v deps)    2>>$ERR_LOG
-  fi
-  if [ $download_all -eq 1 ]; then
-    rm -rf download 2>>$ERR_LOG
-  fi
+	echo "cleannnnnnnnnnnnnnnnnn"
+#  rm -rf install  2>>$ERR_LOG
+#  if [ $clean_all -eq 1 ]; then
+#    rm -rf $BUILD_DIR  2>>$ERR_LOG
+#  else
+#    rm -rf $(ls -1d $BUILD_DIR/* 2>>$ERR_LOG | grep -v deps)    2>>$ERR_LOG
+#  fi
+#  if [ $download_all -eq 1 ]; then
+#    rm -rf download 2>>$ERR_LOG
+#  fi
 }
 
 doclean=0
@@ -122,7 +127,7 @@ do
 done
 
 if [ $doclean -eq 1 ]; then
-  clean
+  echo "clean"
 fi
 
 if [ $download -eq 1 ] && [ $dobuild -eq 0 ]; then
@@ -142,6 +147,7 @@ if [ "$current_os" = "Linux" ]; then
     vendor='centos'
     ver=`cat /etc/centos-release | awk 'match($0, /[0-9]+/){print substr($0, RSTART, RLENGTH)}'`
   fi
+  vendor="debian"
   if [ $vendor = "redhat" ] || [ $vendor = "centos" ]; then
     os_release=$ver".0"
     if [ $ver -lt 7 ]; then
@@ -190,23 +196,28 @@ fi
 function build_pcre() {
   echo "Build PCRE" | tee -a $BUILD_LOG
   cd pcre-$PCRE_VERSION
-  ./configure --prefix="$PCRE_PREFIX" --libdir="$PCRE_PREFIX/lib" --enable-utf --enable-jit >> $BUILD_LOG 2>>$ERR_LOG
+  #./configure --prefix="$PCRE_PREFIX" --libdir="$PCRE_PREFIX/lib" --enable-utf --enable-jit >> $BUILD_LOG 2>>$ERR_LOG
+  ./configure --enable-utf --enable-jit >> $BUILD_LOG 2>>$ERR_LOG
   make -j 8 >> $BUILD_LOG 2>>$ERR_LOG
   r=$?
   if [ $r -ne 0 ]; then
+    echo "error BUILD PCRE"
     exit $r
   fi
   make install >> $BUILD_LOG 2>>$ERR_LOG
+  #make install
   cd ..
 }
 
 function build_zlib() {
   echo "Build ZLIB" | tee -a $BUILD_LOG
   cd zlib-$ZLIB_VERSION
-  ./configure --prefix="$ZLIB_PREFIX" --libdir="$ZLIB_PREFIX/lib" >> $BUILD_LOG 2>>$ERR_LOG
+  ./configure >> $BUILD_LOG 2>>$ERR_LOG
+  #./configure --prefix="$ZLIB_PREFIX" --libdir="$ZLIB_PREFIX/lib" >> $BUILD_LOG 2>>$ERR_LOG
   make -j 8 >> $BUILD_LOG 2>>$ERR_LOG
   r=$?
   if [ $r -ne 0 ]; then
+    echo "ERROR ZLIB"
     exit $r
   fi
   make install >> $BUILD_LOG 2>>$ERR_LOG
@@ -217,11 +228,14 @@ function build_luajit() {
   echo "Build luajit" | tee -a $BUILD_LOG
   cd luajit2
   make >> $BUILD_LOG 2>>$ERR_LOG
+  #make 
   r=$?
   if [ $r -ne 0 ]; then
+    echo "ERROR BUILD LUAJIT"
     exit $r
   fi
   DESTDIR="$JIT_PREFIX" make install >> $BUILD_LOG 2>>$ERR_LOG
+  make install
   cd ..
 }
 
@@ -233,7 +247,14 @@ function build_release() {
   make clean >> $BUILD_LOG 2>>$ERR_LOG
 
   echo "Configuring release nginx-$VERSION" | tee -a $BUILD_LOG
-  ./configure --prefix="$INSTALL_DIR/nginx-$VERSION" \
+  ./configure  \
+              --prefix=/etc/nginx \
+              --sbin-path=/usr/sbin/nginx \
+              --modules-path=/usr/lib/nginx/modules \
+              --conf-path=/etc/nginx/nginx.conf \
+              --error-log-path=/var/log/nginx/error.log \
+              --pid-path=/var/run/nginx.pid \
+              --lock-path=/var/run/nginx.lock \
               $EMBEDDED_OPTS \
               --with-poll_module \
               --with-threads \
@@ -245,18 +266,24 @@ function build_release() {
               --add-module=../lua-nginx-module \
               --add-module=../stream-lua-nginx-module \
               --add-module=../echo-nginx-module \
-              --add-module=../.. >> $BUILD_LOG 2>>$ERR_LOG
+              --add-module=../..
+          #    --with-pcre=$PCRE_PREFIX \
+           #   --with-zlib=$ZLIB_PREFIX \
+              #--add-module=../.. >> $BUILD_LOG 2>>$ERR_LOG
 
   r=$?
   if [ $r -ne 0 ]; then
+    echo "ERROR NGINX CONFIG"
     exit $r
   fi
 
   echo "Build release nginx-$VERSION" | tee -a $BUILD_LOG
   make -j 8 >> $BUILD_LOG 2>>$ERR_LOG
 
+
   r=$?
   if [ $r -ne 0 ]; then
+    echo "ERROR NGINX MAKE"
     exit $r
   fi
 
@@ -297,7 +324,7 @@ function download_module() {
       git log -1 | grep -E "(^[Cc]ommit)|(^[Aa]uthor)|(^[Dd]ate)" >> ../$3.log
       cd ..
       tar zcf $3.tar.gz $3
-      rm -rf $3
+      #rm -rf $3
     else
       echo "Get $3" | tee -a $BUILD_LOG
     fi
@@ -347,10 +374,10 @@ function download() {
   download_dep http://zlib.net                                                     zlib             $ZLIB_VERSION      tar.gz
 
   download_module https://github.com      simpl            ngx_devel_kit                    master
-  download_module https://github.com      openresty        lua-nginx-module                 v0.10.15
-  download_module https://github.com      openresty        stream-lua-nginx-module          v0.0.7
-  download_module https://github.com      openresty        echo-nginx-module                v0.61
-  download_module https://github.com      openresty        luajit2                          v2.1-agentzh
+  download_module https://github.com      openresty        lua-nginx-module                 master 
+  download_module https://github.com      openresty        stream-lua-nginx-module          master 
+  download_module https://github.com      openresty        echo-nginx-module                master 
+  download_module https://github.com      openresty        luajit2                          v2.1-agentzh 
 
   cd ..
 }
@@ -372,6 +399,7 @@ function install_file() {
 }
 
 function install_gzip() {
+  echo "BUILD GZIP"
   echo "Install $1" | tee -a $BUILD_LOG
   if [ ! -e "$INSTALL_DIR/nginx-$VERSION/$2" ]; then
     mkdir -p "$INSTALL_DIR/nginx-$VERSION/$2"
@@ -413,7 +441,7 @@ function build() {
 
   install_files "$ZLIB_PREFIX/lib/libz.$shared*"             lib
 
-  install_file  "$PCRE_PREFIX/bin"                           .
+  #install_file  "$PCRE_PREFIX/bin"                           .
   install_files "$PCRE_PREFIX/lib/libpcre.$shared*"          lib
   install_files "$PCRE_PREFIX/lib/libpcreposix.$shared*"     lib
 
@@ -448,7 +476,7 @@ function install_resty_module() {
       git log -1 | grep -E "(^[Cc]ommit)|(^[Aa]uthor)|(^[Dd]ate)" >> ../$3.log
       cd ..
       tar zcf $3.tar.gz $3
-      rm -rf $3
+    #  rm -rf $3
     else
       echo "Get $3-$6" | tee -a $BUILD_LOG
     fi
@@ -463,13 +491,9 @@ function install_resty_module() {
     if [ -e $3.tar.gz ]; then
       tar zxf $3.tar.gz
       cp -r $3/$4 "$INSTALL_DIR/nginx-$VERSION/$5/"
-      rm -rf $3
+      #rm -rf $3
     fi
   fi
-}
-
-uninstall_file() {
-  rm -rf $INSTALL_DIR/nginx-$VERSION/$1
 }
 
 make_dir() {
@@ -478,13 +502,15 @@ make_dir() {
 
 function install_lua_modules() {
   if [ $download_all -eq 1 ]; then
-    rm -rf download/lua_modules/* 2>>$ERR_LOG
+    echo "rm -rf download/lua_modules/* 2>>$ERR_LOG"
   fi
 
   cd download/lua_modules
 
-  install_resty_module https://github.com   openresty    lua-resty-core              lib   .   v0.1.17    $download $download_all $download_only
-  install_resty_module https://github.com   openresty    lua-resty-lrucache          lib   .   v0.09      $download $download_all $download_only
+  install_resty_module https://github.com   openresty    lua-resty-core              lib   .   master    $download $download_all $download_only
+  install_resty_module https://github.com   openresty    lua-resty-lrucache          lib   .   master      $download $download_all $download_only
+#  install_resty_module https://github.com   openresty    lua-resty-core              lib   .   v0.1.17    $download $download_all $download_only
+#  install_resty_module https://github.com   openresty    lua-resty-lrucache          lib   .   v0.09      $download $download_all $download_only
 
   cd ../..
 }
@@ -507,6 +533,9 @@ kernel_name=$(uname -s)
 kernel_version=$(uname -r)
 
 tar zcvf nginx-$VERSION$SUFFIX-$kernel_name-$kernel_version.tar.gz nginx-$VERSION$SUFFIX
-rm -rf nginx-$VERSION$SUFFIX
 
+cp /usr/local/lib/libpcre* /lib
+mv ./install/nginx-1.24.0/lib/resty/ /usr/local/share/luajit-2.1/
+mv ./install/nginx-1.24.0/lib/ngx/ /usr/local/share/luajit-2.1/
+mv ./install/nginx-1.24.0/lib/* /lib/
 exit $r
